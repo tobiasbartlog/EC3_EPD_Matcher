@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict, Any
 
 # Importiere das Azure Matching-Modul
-from testazure import get_matcher
+from wasganzneues import get_matcher
 
 
 def load_input_json(input_path: Path) -> Dict[str, Any]:
