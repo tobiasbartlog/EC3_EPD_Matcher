@@ -1,0 +1,38 @@
+{
+  "Gruppen": [
+    {
+      "NAME": "Deckschicht",
+      "MATERIAL": "AC 11 D S",
+      "GUID": [
+        "guid1",
+        "guid2",
+        "guid3"
+      ],
+      "Volumen": 42.38,
+      "baudatuuid": [
+        "6b6b68f8-34a4-4a0f-97ee-714bf106c3e0",
+        "3d1b480d-243f-4ff2-aa16-428e1a93f5d8",
+        "85de02e5-2782-4050-9c01-c5de3849fbce"
+      ]
+    },
+    {
+      "NAME": "Binderschicht",
+      "MATERIAL": "AC 16 B S SG mit Polymermodifiziertem Bindemittel 10/40-65A",
+      "GUID": [
+        "guid4",
+        "guid5"
+      ],
+      "Volumen": 57.42,
+      "baudatuuid": [
+        "6b6b68f8-34a4-4a0f-97ee-714bf106c3e0",
+        "3d1b480d-243f-4ff2-aa16-428e1a93f5d8",
+        "85de02e5-2782-4050-9c01-c5de3849fbce"
+      ]
+    }
+  ],
+  "export_info": {
+    "source": "IFC",
+    "generated_at": "2025-09-01T00:00:00Z",
+    "volume_unit": "m3"
+  }
+}
