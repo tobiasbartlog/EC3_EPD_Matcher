@@ -1,168 +1,251 @@
+"""EPD Matcher - Hauptprogramm."""
 import argparse
-import json
 import sys
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, List
+
+from matching.azure_matcher import AzureEPDMatcher
+from utils.file_handler import load_json, save_json
 
 
-
-# Importiere das Azure Matching-Modul
-from onlinezugang import get_matcher
-
-def load_input_json(input_path: Path) -> Dict[str, Any]:
-    """Lädt die Input-JSON-Datei."""
-    try:
-        with open(input_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        return data
-    except FileNotFoundError:
-        print(f"Fehler: Input-Datei nicht gefunden: {input_path}")
-        sys.exit(1)
-    except json.JSONDecodeError as e:
-        print(f"Fehler: Ungültige JSON-Datei: {e}")
-        sys.exit(1)
-
-
-def process_groups(input_data: Dict[str, Any]) -> Dict[str, Any]:
+def process_groups_batch(input_data: Dict[str, Any], matcher: AzureEPDMatcher) -> Dict[str, Any]:
     """
-    Verarbeitet die Gruppen und fügt id-Einträge hinzu.
-    """
-    output_data = input_data.copy()
+    Verarbeitet alle Gruppen mit Batch-Matching (1x Azure-Call für alle).
 
-    if "Gruppen" not in output_data:
+    Args:
+        input_data: Input-JSON mit Gruppen
+        matcher: Initialisierter EPD-Matcher
+
+    Returns:
+        Verarbeitete Daten mit hinzugefügten IDs und Confidence-Werten
+    """
+    if "Gruppen" not in input_data:
         print("Warnung: Keine 'Gruppen' in der Input-JSON gefunden.")
-        return output_data
+        return input_data
 
-    # Azure Matcher initialisieren (Singleton - wird nur einmal erstellt)
-    try:
-        matcher = get_matcher()
-    except ValueError as e:
-        print(f"Fehler: {e}")
-        sys.exit(1)
+    output_data = input_data.copy()
+    gruppen = output_data["Gruppen"]
+    total = len(gruppen)
 
-    total_groups = len(output_data["Gruppen"])
+    print(f"\n{'='*70}")
+    print(f"BATCH-MATCHING: {total} Schichten auf einmal")
+    print(f"{'='*70}\n")
 
-    for idx, gruppe in enumerate(output_data["Gruppen"], 1):
-        material = gruppe.get("MATERIAL", "")
+    # Sammle alle Materialien für Batch-Request
+    materials = []
+    for idx, gruppe in enumerate(gruppen):
+        materials.append({
+            "material_name": gruppe.get("MATERIAL", ""),
+            "context": {
+                "NAME": gruppe.get("NAME", ""),
+                "Volumen": gruppe.get("Volumen", 0),
+                "GUID": gruppe.get("GUID", [])
+            }
+        })
 
-        print(f"[{idx}/{total_groups}] Verarbeite: {gruppe.get('NAME', 'Unbekannt')}")
-        print(f"  Material: {material}")
+    # Ein einziger Azure-Call für alle Schichten!
+    all_results = matcher.match_materials_batch(materials, max_results=10)
 
-        # Kontext für besseres Matching erstellen
-        context = {
-            "NAME": gruppe.get("NAME", ""),
-            "Volumen": gruppe.get("Volumen", 0),
-            "GUID": gruppe.get("GUID", [])
-        }
+    # Ergebnisse den Gruppen zuordnen
+    for idx, gruppe in enumerate(gruppen):
+        print(f"[{idx+1}/{total}] Verarbeite: {gruppe.get('NAME', 'Unbekannt')}")
+        print(f"  Material: {gruppe.get('MATERIAL', '')}")
 
-        # Azure OpenAI Matching durchführen
-        matched_ids = matcher.match_material(
-            material_name=material,
-            context=context,
-            max_results=10
-        )
+        if idx < len(all_results):
+            result = all_results[idx]
+            matched_ids = result.get("ids", [])
+            confidence_map = result.get("confidence", {})
 
-        # IDs hinzufügen
-        seen = set() # TEST
-        matched_ids = [x for x in matched_ids if not (str(x) in seen or seen.add(str(x)))] # TEST
-        gruppe["id"] = matched_ids
+            # Duplikate entfernen
+            matched_ids = remove_duplicates(matched_ids)
 
+            gruppe["id"] = matched_ids
+            gruppe["id_confidence"] = confidence_map
 
-        # print(f"  → {len(matched_uuids)} UUID(s) gefunden\n")
-        print(f"  → {len(matched_ids)} ID(s) gefunden\n")
-
-        detailed = matcher.get_last_results()
-
-        # Map ID → Confidence (nur für die zurückgegebenen IDs)
-        conf_map = {}
-        # Dieselben Top-N wie matched_ids
-        top_set = set(str(x) for x in matched_ids)
-        for m in detailed:
-            uid = str(m.get("uuid", ""))
-            if uid in top_set:
-                conf_map[uid] = m.get("confidence")
-
-        # In die Gruppe schreiben:
-        gruppe["id_confidence"] = conf_map  # Zuordnung ID → Confidence
-
+            print(f"  → {len(matched_ids)} ID(s) gefunden\n")
+        else:
+            print(f"  → Keine Ergebnisse\n")
+            gruppe["id"] = []
+            gruppe["id_confidence"] = {}
 
     return output_data
 
 
-def save_output_json(output_data: Dict[str, Any], output_path: Path) -> None:
-    """Speichert die Output-JSON-Datei."""
-    try:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+def process_groups(input_data: Dict[str, Any], matcher: AzureEPDMatcher) -> Dict[str, Any]:
+    """
+    Verarbeitet alle Gruppen einzeln (Legacy-Modus, 1 Azure-Call pro Schicht).
 
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(output_data, f, indent=2, ensure_ascii=False)
+    Args:
+        input_data: Input-JSON mit Gruppen
+        matcher: Initialisierter EPD-Matcher
 
-        print(f"✓ Output erfolgreich gespeichert: {output_path}")
-    except Exception as e:
-        print(f"Fehler beim Speichern der Output-Datei: {e}")
-        sys.exit(1)
+    Returns:
+        Verarbeitete Daten mit hinzugefügten IDs und Confidence-Werten
+    """
+    if "Gruppen" not in input_data:
+        print("Warnung: Keine 'Gruppen' in der Input-JSON gefunden.")
+        return input_data
+
+    output_data = input_data.copy()
+    total_groups = len(output_data["Gruppen"])
+
+    for idx, gruppe in enumerate(output_data["Gruppen"], 1):
+        process_single_group(gruppe, idx, total_groups, matcher)
+
+    return output_data
 
 
-def main():
-    """Hauptfunktion des Skripts."""
-    parser = argparse.ArgumentParser(
-        # description='EPD Matcher - Verarbeitet Bauschichten und fügt Baudat-UUIDs hinzu'
-        description='EPD Matcher - Verarbeitet Bauschichten und fügt IDs hinzu' #TEST
+def process_single_group(
+    gruppe: Dict[str, Any],
+    index: int,
+    total: int,
+    matcher: AzureEPDMatcher
+) -> None:
+    """
+    Verarbeitet eine einzelne Gruppe.
+
+    Args:
+        gruppe: Gruppen-Dictionary (wird in-place modifiziert)
+        index: Aktueller Index
+        total: Gesamt-Anzahl Gruppen
+        matcher: EPD-Matcher Instanz
+    """
+    material = gruppe.get("MATERIAL", "")
+
+    print(f"[{index}/{total}] Verarbeite: {gruppe.get('NAME', 'Unbekannt')}")
+    print(f"  Material: {material}")
+
+    # Kontext für besseres Matching
+    context = {
+        "NAME": gruppe.get("NAME", ""),
+        "Volumen": gruppe.get("Volumen", 0),
+        "GUID": gruppe.get("GUID", [])
+    }
+
+    # Azure OpenAI Matching
+    matched_ids = matcher.match_material(
+        material_name=material,
+        context=context,
+        max_results=10
     )
 
+    # Duplikate entfernen (behält Reihenfolge)
+    matched_ids = remove_duplicates(matched_ids)
+
+    # Ergebnisse zur Gruppe hinzufügen
+    gruppe["id"] = matched_ids
+    gruppe["id_confidence"] = build_confidence_map(matched_ids, matcher)
+
+    print(f"  → {len(matched_ids)} ID(s) gefunden\n")
+
+
+def remove_duplicates(ids: list) -> list:
+    """Entfernt Duplikate aus Liste unter Beibehaltung der Reihenfolge."""
+    seen = set()
+    return [x for x in ids if not (str(x) in seen or seen.add(str(x)))]
+
+
+def build_confidence_map(
+    matched_ids: list,
+    matcher: AzureEPDMatcher
+) -> Dict[str, int]:
+    """
+    Erstellt Mapping von ID zu Confidence-Wert.
+
+    Args:
+        matched_ids: Liste der gematchten IDs
+        matcher: Matcher-Instanz mit letzten Ergebnissen
+
+    Returns:
+        Dictionary {id: confidence}
+    """
+    detailed_results = matcher.get_last_results()
+    matched_set = {str(x) for x in matched_ids}
+
+    return {
+        str(result["uuid"]): result["confidence"]
+        for result in detailed_results
+        if str(result["uuid"]) in matched_set
+    }
+
+
+def parse_arguments() -> argparse.Namespace:
+    """Parst Kommandozeilen-Argumente."""
+    parser = argparse.ArgumentParser(
+        description='EPD Matcher - Verarbeitet Bauschichten und fügt IDs hinzu'
+    )
     parser.add_argument(
         'id_folder',
         type=str,
         help='Pfad zum ID-Ordner (enthält input und output Unterordner)'
     )
-
     parser.add_argument(
         '--input-file',
         type=str,
         default='input.json',
         help='Name der Input-JSON-Datei (Standard: input.json)'
     )
-
     parser.add_argument(
         '--output-file',
         type=str,
         default='output.json',
         help='Name der Output-JSON-Datei (Standard: output.json)'
     )
+    parser.add_argument(
+        '--no-batch',
+        action='store_true',
+        help='Deaktiviert Batch-Matching (jede Schicht einzeln)'
+    )
+    return parser.parse_args()
 
-    args = parser.parse_args()
+
+def main():
+    """Hauptfunktion des Skripts."""
+    args = parse_arguments()
 
     # Pfade konstruieren
     id_folder = Path(args.id_folder)
-    input_folder = id_folder / "input"
-    output_folder = id_folder / "output"
+    input_path = id_folder / "input" / args.input_file
+    output_path = id_folder / "output" / args.output_file
 
-    input_path = input_folder / args.input_file
-    output_path = output_folder / args.output_file
-
+    # Header ausgeben
     print("=" * 60)
     print("EPD MATCHER - Azure OpenAI Edition")
     print("=" * 60)
-    print(f"ID-Ordner:     {id_folder}")
-    print(f"Input-Ordner:  {input_folder}")
-    print(f"Output-Ordner: {output_folder}")
+    print(f"Input:  {input_path}")
+    print(f"Output: {output_path}")
+    if not args.no_batch:
+        print("Mode:   BATCH (alle Schichten in 1 Request) ⚡")
+    else:
+        print("Mode:   EINZELN (1 Request pro Schicht)")
     print("=" * 60 + "\n")
 
-    # Prüfen ob Input-Ordner existiert
-    if not input_folder.exists():
-        print(f"Fehler: Input-Ordner existiert nicht: {input_folder}")
+    # Input-Ordner prüfen
+    if not input_path.parent.exists():
+        print(f"Fehler: Input-Ordner existiert nicht: {input_path.parent}")
         sys.exit(1)
 
-    # JSON laden
-    input_data = load_input_json(input_path)
-    print(f"✓ Input-Datei geladen: {len(input_data.get('Gruppen', []))} Gruppe(n) gefunden\n")
+    # Matcher initialisieren
+    try:
+        matcher = AzureEPDMatcher()
+    except ValueError as e:
+        print(f"Fehler: {e}")
+        sys.exit(1)
 
-    # Verarbeitung durchführen
-    output_data = process_groups(input_data)
+    # Input laden
+    input_data = load_json(input_path)
+    print(f"✓ Input geladen: {len(input_data.get('Gruppen', []))} Gruppe(n)\n")
+
+    # Verarbeitung durchführen (Batch oder Einzeln)
+    if args.no_batch:
+        output_data = process_groups(input_data, matcher)
+    else:
+        output_data = process_groups_batch(input_data, matcher)
 
     # Output speichern
-    save_output_json(output_data, output_path)
+    save_json(output_data, output_path)
 
+    # Footer ausgeben
     print("\n" + "=" * 60)
     print("VERARBEITUNG ABGESCHLOSSEN")
     print("=" * 60)

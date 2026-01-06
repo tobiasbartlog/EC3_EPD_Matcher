@@ -7,7 +7,7 @@ from typing import Dict, Any
 
 
 # Importiere das Azure Matching-Modul
-from onlinezugang import get_matcher
+from src.old.onlinezugang import get_matcher
 
 def load_input_json(input_path: Path) -> Dict[str, Any]:
     """Lädt die Input-JSON-Datei."""
