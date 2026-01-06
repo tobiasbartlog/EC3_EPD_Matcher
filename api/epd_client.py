@@ -22,14 +22,14 @@ class EPDAPIClient:
         Lädt EPDs aus der Datenbank (mit clientseitiger Filterung).
 
         Args:
-            labels: Filter-Labels (werden clientseitig gefiltert)
+            labels: Filter-Labels (werden in Name + Klassifizierung gesucht)
             fields: Benötigte Felder (aktuell nicht genutzt)
 
         Returns:
             Liste normalisierter EPD-Einträge (gefiltert)
         """
-        # Lade ALLE EPDs (ohne API-Filter)
-        params = {}  # Keine Suchparameter!
+        # Lade ALLE EPDs (ohne API-Filter) ← WICHTIG: OHNE search Parameter!
+        params = {}  # ← Leer!
         data = self._request(params)
 
         all_epds = []
@@ -48,16 +48,22 @@ class EPDAPIClient:
             filtered = []
             for epd in all_epds:
                 name = epd.get("name", "").lower()
-                # Prüfe ob IRGENDEIN Label im Namen vorkommt
-                if any(label.lower() in name for label in labels):
+                klassifizierung = epd.get("klassifizierung", "").lower()
+
+                # Kombiniere Name + Klassifizierung für Suche
+                search_text = f"{name} {klassifizierung}"
+
+                # Prüfe ob IRGENDEIN Label im Text vorkommt
+                if any(label.lower() in search_text for label in labels):
                     filtered.append(epd)
 
             print(f"  Filter aktiv: {len(all_epds)} → {len(filtered)} EPDs (Labels: {len(labels)})")
+            print(f"    Suche in: Name + Klassifizierung")
             return filtered
 
         return all_epds
 
-    def get_epd_details(self, epd_ids: List[int], max_workers: int = 50) -> List[Dict[str, Any]]:
+    def get_epd_details(self, epd_ids: List[int], max_workers: int = 10) -> List[Dict[str, Any]]:
         """
         Lädt Detail-Daten für mehrere EPDs PARALLEL.
 

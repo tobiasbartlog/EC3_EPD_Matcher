@@ -17,6 +17,7 @@ class AzureEPDMatcher:
         self._validate_config()
         self._init_clients()
         self._last_results: List[Dict[str, Any]] = []
+        self._batch_detailed_results: List[List[Dict[str, Any]]] = []
         self._epd_cache: Optional[List[Dict[str, Any]]] = None
         self._print_initialization_info()
 
@@ -57,6 +58,8 @@ class AzureEPDMatcher:
 
         # Ergebnisse formatieren
         results = []
+        enriched_all = []
+
         for schicht_idx, matches in enumerate(all_matches):
             # IDs extrahieren
             ids = [m["uuid"] for m in matches[:max_results]]
@@ -70,6 +73,7 @@ class AzureEPDMatcher:
 
             # Namen für spätere Abfrage speichern (für get_last_results)
             enriched = self._enrich_results(matches, epds)
+            enriched_all.append(enriched)
             if schicht_idx == 0:
                 self._last_results = enriched  # Speichere erste Schicht
 
@@ -81,6 +85,8 @@ class AzureEPDMatcher:
             # Ausgabe
             mat_name = materials[schicht_idx].get("material_name", "Unbekannt")
             print(f"  Schicht {schicht_idx+1} ({mat_name}): {len(ids)} Matches")
+
+        self._batch_detailed_results = enriched_all
 
         print(f"\n✅ Batch-Matching abgeschlossen\n{'='*70}\n")
         return results
@@ -123,16 +129,13 @@ class AzureEPDMatcher:
         self._print_results(matches)
         return [m["uuid"] for m in matches[:max_results]]
 
-        print(f"DEBUG: Azure gab {len(matches)} Matches zurück")
-        print(f"DEBUG: max_results={max_results}")
-        print(f"DEBUG: Matches vor Slicing: {[m['uuid'] for m in matches]}")
-
-        self._last_results = self._enrich_results(matches, epds)
-        return [m["uuid"] for m in matches[:max_results]]
-
     def get_last_results(self) -> List[Dict[str, Any]]:
         """Gibt detaillierte Ergebnisse des letzten Matchings zurück."""
         return list(self._last_results)
+
+    def get_batch_detailed_results(self) -> List[List[Dict[str, Any]]]:
+        """Gibt detaillierte Ergebnisse für alle Schichten aus dem letzten Batch zurück."""
+        return self._batch_detailed_results
 
     # -------------------- Private Methoden --------------------
 
@@ -192,10 +195,9 @@ class AzureEPDMatcher:
             print(f"⚠️  Begrenze auf {MatchingConfig.MAX_EPD_IN_PROMPT} EPDs")
             epds_list = epds_list[:MatchingConfig.MAX_EPD_IN_PROMPT]
 
-        # Schritt 3: Detail-Daten laden (abhängig von Config) ← NEU!
+        # Schritt 3: Detail-Daten laden (abhängig von Config)
         if MatchingConfig.USE_DETAIL_MATCHING:
-            print(
-                f"\n[2/2] Lade Detail-Daten (dauert ca. {len(epds_list) // MatchingConfig.PARALLEL_WORKERS} Sekunden)...")
+            print(f"\n[2/2] Lade Detail-Daten (dauert ca. {len(epds_list)//MatchingConfig.PARALLEL_WORKERS} Sekunden)...")
             print(f"  Modus: DETAIL-MATCHING (höhere Qualität, mehr Tokens)")
             epd_ids = [epd["id"] for epd in epds_list if epd.get("id")]
 

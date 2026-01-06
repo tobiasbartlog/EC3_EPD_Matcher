@@ -9,16 +9,7 @@ from utils.file_handler import load_json, save_json
 
 
 def process_groups_batch(input_data: Dict[str, Any], matcher: AzureEPDMatcher) -> Dict[str, Any]:
-    """
-    Verarbeitet alle Gruppen mit Batch-Matching (1x Azure-Call für alle).
-
-    Args:
-        input_data: Input-JSON mit Gruppen
-        matcher: Initialisierter EPD-Matcher
-
-    Returns:
-        Verarbeitete Daten mit hinzugefügten IDs und Confidence-Werten
-    """
+    """Verarbeitet alle Gruppen mit Batch-Matching (1x Azure-Call für alle)."""
     if "Gruppen" not in input_data:
         print("Warnung: Keine 'Gruppen' in der Input-JSON gefunden.")
         return input_data
@@ -27,13 +18,13 @@ def process_groups_batch(input_data: Dict[str, Any], matcher: AzureEPDMatcher) -
     gruppen = output_data["Gruppen"]
     total = len(gruppen)
 
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"BATCH-MATCHING: {total} Schichten auf einmal")
-    print(f"{'='*70}\n")
+    print(f"{'=' * 70}\n")
 
-    # Sammle alle Materialien für Batch-Request
+    # Sammle alle Materialien
     materials = []
-    for idx, gruppe in enumerate(gruppen):
+    for gruppe in gruppen:
         materials.append({
             "material_name": gruppe.get("MATERIAL", ""),
             "context": {
@@ -43,28 +34,64 @@ def process_groups_batch(input_data: Dict[str, Any], matcher: AzureEPDMatcher) -
             }
         })
 
-    # Ein einziger Azure-Call für alle Schichten!
+    # Batch-Matching
     all_results = matcher.match_materials_batch(materials, max_results=10)
 
-    # Ergebnisse den Gruppen zuordnen
+    # NEU: Hole Detail-Ergebnisse
+    detailed_results = matcher.get_batch_detailed_results()
+
+    # DEBUG
+    print(f"\nDEBUG: detailed_results hat {len(detailed_results)} Schichten")
+    for i, schicht in enumerate(detailed_results):
+        print(f"  Schicht {i + 1}: {len(schicht)} Matches")
+        if schicht:
+            print(f"    Erstes Match: {schicht[0]}")
+
+    # Ergebnisse zuordnen und ausgeben
     for idx, gruppe in enumerate(gruppen):
-        print(f"[{idx+1}/{total}] Verarbeite: {gruppe.get('NAME', 'Unbekannt')}")
-        print(f"  Material: {gruppe.get('MATERIAL', '')}")
+        print(f"\n{'=' * 70}")
+        print(f"[{idx + 1}/{total}] {gruppe.get('NAME', 'Unbekannt')}")
+        print(f"{'=' * 70}")
+        print(f"Material: {gruppe.get('MATERIAL', '')}")
 
         if idx < len(all_results):
             result = all_results[idx]
             matched_ids = result.get("ids", [])
-            confidence_map = result.get("confidence", {})
-
-            # Duplikate entfernen
             matched_ids = remove_duplicates(matched_ids)
 
             gruppe["id"] = matched_ids
-            gruppe["id_confidence"] = confidence_map
+            gruppe["id_confidence"] = result.get("confidence", {})
 
-            print(f"  → {len(matched_ids)} ID(s) gefunden\n")
+            # NEU: Zeige Details
+            if idx < len(detailed_results):
+                matches = detailed_results[idx]
+                print(f"\n🎯 {len(matches)} Matches gefunden:\n")
+
+                for i, match in enumerate(matches[:10], 1):
+                    match_id = match.get("uuid", "N/A")
+                    name = match.get("name", "Unbekannt")
+                    conf = match.get("confidence")
+                    reason = match.get("begruendung", "Keine Begründung")
+
+                    if conf is not None:
+                        if conf >= 85:
+                            conf_icon = "🟢"
+                        elif conf >= 60:
+                            conf_icon = "🟡"
+                        else:
+                            conf_icon = "🟠"
+                        conf_str = f"{conf_icon} {conf}%"
+                    else:
+                        conf_str = "❓ N/A"
+
+                    print(f"{i:2d}. ID: {match_id}")
+                    print(f"    Name: {name}")
+                    print(f"    Confidence: {conf_str}")
+                    print(f"    Begründung: {reason}")
+                    print()
+
+            print(f"→ {len(matched_ids)} ID(s) in Output geschrieben")
         else:
-            print(f"  → Keine Ergebnisse\n")
             gruppe["id"] = []
             gruppe["id_confidence"] = {}
 

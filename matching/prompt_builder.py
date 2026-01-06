@@ -52,10 +52,10 @@ class PromptBuilder:
             Formatierter Prompt-String
         """
         sections = [
-            PromptBuilder._build_header(material_name),
+            PromptBuilder._build_header(material_name, context),
             PromptBuilder._build_context_section(context),
             PromptBuilder._build_epd_list(epds),
-            PromptBuilder._build_task_section(material_name, max_results)
+            PromptBuilder._build_task_section(material_name, context, max_results)
         ]
 
         return "\n".join(s for s in sections if s)
@@ -68,12 +68,16 @@ class PromptBuilder:
         for i, mat in enumerate(materials, 1):
             material_name = mat.get("material_name", "Unbekannt")
             context = mat.get("context", {})
+            schicht_name = context.get("NAME", "")
 
-            header += f"SCHICHT {i}: \"{material_name}\"\n"
+            # WICHTIG: Schichtname VOR Material nennen!
+            if schicht_name:
+                header += f"SCHICHT {i}: {schicht_name}\n"
+                header += f"  Material: {material_name}\n"
+            else:
+                header += f"SCHICHT {i}: \"{material_name}\"\n"
 
             if context:
-                if context.get("NAME"):
-                    header += f"  - Name: {context['NAME']}\n"
                 if context.get("Volumen"):
                     header += f"  - Volumen: {context['Volumen']} m³\n"
                 if context.get("GUID"):
@@ -84,9 +88,14 @@ class PromptBuilder:
         return header
 
     @staticmethod
-    def _build_header(material_name: str) -> str:
+    def _build_header(material_name: str, context: Optional[Dict[str, Any]] = None) -> str:
         """Erstellt Prompt-Header für Einzelmaterial."""
-        return f'Baumaterial-Matching\n\nZu matchen: "{material_name}"'
+        schicht_name = context.get("NAME", "") if context else ""
+
+        if schicht_name:
+            return f'Baumaterial-Matching\n\nSchicht: {schicht_name}\nMaterial: "{material_name}"'
+        else:
+            return f'Baumaterial-Matching\n\nZu matchen: "{material_name}"'
 
     @staticmethod
     def _build_context_section(context: Optional[Dict[str, Any]]) -> str:
@@ -95,8 +104,6 @@ class PromptBuilder:
             return ""
 
         lines = []
-        if context.get("NAME"):
-            lines.append(f"- Schicht: {context['NAME']}")
         if context.get("Volumen"):
             lines.append(f"- Volumen: {context['Volumen']} m³")
         if context.get("GUID"):
@@ -105,7 +112,7 @@ class PromptBuilder:
         if not lines:
             return ""
 
-        return "\nKontext:\n" + "\n".join(lines)
+        return "\nZusätzlicher Kontext:\n" + "\n".join(lines)
 
     @staticmethod
     def _build_epd_list(epds: List[Dict[str, Any]]) -> str:
@@ -155,44 +162,259 @@ class PromptBuilder:
         return header + "\n" + "\n".join(entries)
 
     @staticmethod
+    def _get_material_glossary() -> str:
+        """Gibt detaillierte Asphalt-Lookup-Tabelle zurück (basierend auf BAM-Norm)."""
+        return """
+╔════════════════════════════════════════════════════════════════════╗
+║  ASPHALT-BEZEICHNUNGEN NACH BAM (Bundesverband der Asphaltindustrie)  ║
+╚════════════════════════════════════════════════════════════════════╝
+
+📋 AUFBAU EINER ASPHALT-BEZEICHNUNG:
+   [TYP] [GRÖSSTKOR] [SCHICHT] [EIGENSCHAFTEN]
+   
+   Beispiel: AC 16 B S
+   ├─ AC = Asphaltbeton (Typ)
+   ├─ 16 = Größtkorn 16 mm
+   ├─ B = Binderschicht
+   └─ S = Splittmastixcharakter
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1️⃣  ASPHALT-TYPEN (TYP-CODE)
+
+┌─────────┬──────────────────────────┬─────────────────────────────────┐
+│  CODE   │  VOLLSTÄNDIGER NAME      │  EPD-SUCHBEGRIFFE               │
+├─────────┼──────────────────────────┼─────────────────────────────────┤
+│  AC     │  Asphaltbeton            │  Asphaltbeton, Asphalt,         │
+│         │                          │  Asphalttragschicht,            │
+│         │                          │  Asphaltbinder, Bitumen         │
+├─────────┼──────────────────────────┼─────────────────────────────────┤
+│  SMA    │  Splittmastixasphalt     │  Splittmastixasphalt,           │
+│         │                          │  Splittmastix, SMA              │
+├─────────┼──────────────────────────┼─────────────────────────────────┤
+│  PA     │  Offenporiger Asphalt    │  Drainasphalt, offenporig,      │
+│         │  (Dränasphalt)           │  wasserdurchlässig, Dränasphalt │
+├─────────┼──────────────────────────┼─────────────────────────────────┤
+│  MA     │  Asphaltmastix           │  Gussasphalt, Asphaltmastix,    │
+│         │  (Gussasphalt)           │  Mastix, Guss                   │
+└─────────┴──────────────────────────┴─────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+2️⃣  SCHICHTCODES (POSITION IN DER STRASSE)
+
+┌──────┬─────────────────┬────────────────────────────────────────────┐
+│ CODE │  SCHICHTTYP     │  EPD-SUCHBEGRIFFE                          │
+├──────┼─────────────────┼────────────────────────────────────────────┤
+│  D   │  Deckschicht    │  Asphaltdeckschicht, Deckschicht,          │
+│      │  (oberste)      │  Verschleißschicht, Deck, Decke            │
+├──────┼─────────────────┼────────────────────────────────────────────┤
+│  B   │  Binderschicht  │  Asphaltbinder, Binderschicht,             │
+│      │  (mittlere)     │  Binder, Asphalttragschicht                │
+├──────┼─────────────────┼────────────────────────────────────────────┤
+│  T   │  Tragschicht    │  Asphalttragschicht, Tragschicht,          │
+│      │  (unterste)     │  Trag, Asphaltbinder                       │
+└──────┴─────────────────┴────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+3️⃣  GRÖSSTKORN (ZAHL IN MM)
+
+Häufige Werte: 5, 8, 11, 16, 22, 32
+→ Für EPD-Matching meist SEKUNDÄR relevant
+→ Fokus auf Typ + Schichtcode!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+4️⃣  EIGENSCHAFTEN-CODES
+
+┌──────┬─────────────────────────────────────────────────────────────┐
+│ CODE │  BEDEUTUNG                                                  │
+├──────┼─────────────────────────────────────────────────────────────┤
+│  S   │  Splittmastixcharakter (hoher Splittanteil)                │
+│  SG  │  mit Gesteinsmehl-Zusatz                                    │
+│  N   │  niedrig dosiertes Bindemittel                             │
+│  H   │  hochdosiertes Bindemittel                                 │
+└──────┴─────────────────────────────────────────────────────────────┘
+
+→ Für EPD-Matching meist SEKUNDÄR relevant
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+5️⃣  BINDEMITTEL-HINWEISE
+
+┌─────────────────────────┬─────────────────────────────────────────┐
+│  BEGRIFF IN BEZEICHNUNG │  EPD-SUCHBEGRIFFE                       │
+├─────────────────────────┼─────────────────────────────────────────┤
+│  Polymermodifiziert     │  polymer, modifiziert, Elastomer,       │
+│  PmB                    │  PmB, Polymer-Bitumen                   │
+│  10/40-65A, 25/55-55    │  Bitumen, Bindemittel                   │
+└─────────────────────────┴─────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📖 MATCHING-BEISPIELE MIT LOOKUP:
+
+Beispiel 1: "AC 11 D S"
+├─ AC → Asphaltbeton → Suche: "Asphaltbeton", "Asphalt", "Bitumen"
+├─ 11 → Größtkorn (ignorieren für Matching)
+├─ D  → Deckschicht → Suche: "Asphaltdeckschicht", "Deckschicht", "Verschleißschicht"
+└─ S  → Splittcharakter (sekundär)
+✓ EPD MUSS enthalten: Asphalt-Begriffe + Deckschicht-Begriffe
+
+Beispiel 2: "AC 16 B S SG mit Polymermodifiziertem Bindemittel 10/40-65A"
+├─ AC → Asphaltbeton → Suche: "Asphaltbeton", "Asphalt", "Bitumen"
+├─ 16 → Größtkorn (ignorieren)
+├─ B  → Binderschicht → Suche: "Asphaltbinder", "Binderschicht", "Asphalttragschicht"
+├─ S, SG → Eigenschaften (sekundär)
+└─ Polymermodifiziert → Suche: "polymer", "modifiziert", "Elastomer", "PmB"
+✓ EPD MUSS enthalten: Asphalt-Begriffe + Binder-Begriffe + Polymer-Begriffe
+
+Beispiel 3: "SMA 11 S"
+├─ SMA → Splittmastixasphalt → Suche: "Splittmastixasphalt", "Splittmastix", "SMA"
+├─ 11  → Größtkorn (ignorieren)
+└─ S   → Splittcharakter (bestätigt SMA)
+✓ EPD MUSS enthalten: Splittmastix-Begriffe
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+❌ AUSSCHLUSS-LISTE (NIEMALS FÜR ASPHALT MATCHEN):
+
+Diese Materialien sind KEIN Asphalt und dürfen bei AC/SMA/PA/MA NIEMALS 
+als Match vorgeschlagen werden:
+
+🚫 Betonprodukte:
+   - Betonpflaster, Betonstein, Pflasterstein
+   - Normaler Beton (C20/25, C30/37, C35/45, etc.)
+   - Betondecke, Betonschicht
+   - Transportbeton, Fertigbeton
+
+🚫 Bindemittel (solo, ohne Asphalt-Kontext):
+   - Zement (solo), Portland-Zement
+   - Mörtel, Estrich
+   - Kalk, Kalkmörtel
+
+🚫 Andere Baustoffe:
+   - Kalksandstein, Mauerwerk, Ziegel
+   - Anhydrit, Gips
+   - Holz, Holzwerkstoffe
+   - Stahl, Aluminium, Metalle
+   - Kunststoffe, Dämmstoffe
+
+⚠️  REGEL: Wenn EPD-Name einen dieser Begriffe enthält → Confidence < 30!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔍 MATCHING-PROZESS (SCHRITT FÜR SCHRITT):
+
+Schritt 1: PARSE die Material-Bezeichnung
+   → Identifiziere: TYP, SCHICHTCODE, BINDEMITTEL-HINWEISE
+
+Schritt 2: LOOKUP in obigen Tabellen
+   → Finde passende EPD-Suchbegriffe für TYP + SCHICHTCODE
+
+Schritt 3: PRÜFE EPD-Namen gegen AUSSCHLUSS-LISTE
+   → Enthält EPD Ausschluss-Begriff? → VERWERFEN (Confidence < 30)
+
+Schritt 4: SUCHE EPD-Namen nach Suchbegriffen
+   → EPD-Name enthält TYP-Begriffe? → Kandidat!
+   → EPD-Name enthält SCHICHT-Begriffe? → Noch besser!
+   → EPD-Name enthält BINDEMITTEL-Begriffe? → Perfekt!
+
+Schritt 5: BERECHNE Confidence
+   → TYP + SCHICHT + Details passen: 85-100%
+   → TYP + SCHICHT passen: 60-84%
+   → Nur TYP passt: 40-59%
+   → Nur Bitumen o.ä.: 30-39%
+   → Ausschluss-Begriff: < 30%
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚠️  KRITISCHE VERWECHSLUNGEN VERMEIDEN:
+
+❌ FALSCH: "AC 16 B S" → "Betonpflaster" 
+   (Betonpflaster ist KEIN Asphalt!)
+
+❌ FALSCH: "AC 11 D S" → "Beton C20/25"
+   (Normaler Beton ist KEIN Asphalt!)
+
+❌ FALSCH: "AC 16 B S" → "Zement"
+   (Zement allein ist KEIN Asphalt!)
+
+✓ RICHTIG: "AC 16 B S" → "Asphaltbinder", "Asphalttragschicht"
+
+✓ RICHTIG: "AC 11 D S" → "Asphaltdeckschicht", "Verschleißschicht"
+
+✓ RICHTIG: "SMA 11 S" → "Splittmastixasphalt"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+
+    @staticmethod
     def _build_batch_task_section(materials: List[Dict[str, Any]], max_results: int) -> str:
         """Erstellt Aufgabenstellung für Batch-Matching."""
         material_list = "\n".join([
-            f"  - SCHICHT {i}: \"{mat.get('material_name', 'Unbekannt')}\""
+            f"  - SCHICHT {i} ({mat.get('context', {}).get('NAME', 'Unbekannt')}): \"{mat.get('material_name', 'Unbekannt')}\""
             for i, mat in enumerate(materials, 1)
         ])
 
+        glossary = PromptBuilder._get_material_glossary()
+
         if MatchingConfig.USE_DETAIL_MATCHING:
-            criteria = """Bewertungskriterien:
+            criteria = f"""{glossary}
+
+Bewertungskriterien:
 - Verwende nur die oben gelisteten Einträge
-- Nutze ALLE verfügbaren Felder (Name, Klassifizierung, technische Beschreibung, Anmerkungen, Anwendungsgebiet)
-- Gib eine kurze Begründung mit konkreten Zitaten aus den Feldern
+- PFLICHT: Nutze die Lookup-Tabellen für EXAKTE Interpretation der Bezeichnungen!
+- Der Schichtname (z.B. "Binderschicht", "Deckschicht") gibt zusätzlichen Kontext
+- Nutze ALLE verfügbaren EPD-Felder (Name, Klassifizierung, technische Beschreibung, Anmerkungen, Anwendungsgebiet)
+- Gib eine kurze Begründung mit konkreten Zitaten aus den EPD-Feldern
 - Liefere einen Confidence-Score in Prozent (0–100)
 
+Matching-Prozess (befolge STRIKT):
+1. PARSE Material-Bezeichnung → finde TYP-Code (AC/SMA/PA/MA) + SCHICHT-Code (D/B/T)
+2. LOOKUP in Tabellen → identifiziere EPD-Suchbegriffe
+3. PRÜFE EPD gegen Ausschluss-Liste → verwerfe wenn Ausschluss-Begriff enthalten
+4. SUCHE in EPD-Feldern nach Suchbegriffen aus Lookup-Tabellen
+5. BERECHNE Confidence nach unten stehenden Kriterien
+
 Confidence-Kalibrierung:
-- 85–100: exakte Nennung + passende Spezifikation in technischer Beschreibung
-- 60–84: starke semantische Nähe, passende Klassifizierung
-- 30–59: allgemeiner Bezug ohne passende Typologie
-- <30: nicht listen"""
+- 85–100: EPD enthält TYP-Begriff + SCHICHT-Begriff + technische Details passen + KEIN Ausschluss-Begriff
+- 60–84: EPD enthält TYP-Begriff + SCHICHT-Begriff + KEIN Ausschluss-Begriff
+- 40–59: EPD enthält TYP-Begriff (z.B. "Asphalt", "Bitumen") + KEIN Ausschluss-Begriff
+- 30–39: EPD hat schwachen Asphalt-Bezug + KEIN Ausschluss-Begriff
+- <30: EPD enthält Ausschluss-Begriff ODER kein Asphalt-Bezug (NICHT LISTEN!)"""
         else:
-            criteria = """Bewertungskriterien:
+            criteria = f"""{glossary}
+
+Bewertungskriterien:
 - Verwende nur die oben gelisteten Einträge
-- Matche basierend auf dem Namen
-- Gib eine kurze Begründung mit Bezug zum Namen
+- PFLICHT: Nutze die Lookup-Tabellen für EXAKTE Interpretation der Bezeichnungen!
+- Der Schichtname (z.B. "Binderschicht", "Deckschicht") ist zusätzlicher Kontext
+- Gib eine kurze Begründung mit Bezug zu den Lookup-Tabellen
 - Liefere einen Confidence-Score in Prozent (0–100)
 
+Matching-Prozess (befolge STRIKT):
+1. PARSE Material-Bezeichnung → finde TYP-Code + SCHICHT-Code
+2. LOOKUP in Tabellen → identifiziere EPD-Suchbegriffe
+3. PRÜFE EPD-Name gegen Ausschluss-Liste → verwerfe wenn Ausschluss-Begriff
+4. VERGLEICHE EPD-Namen mit Suchbegriffen aus Lookup-Tabellen
+5. BERECHNE Confidence nach unten stehenden Kriterien
+
 Confidence-Kalibrierung:
-- 85–100: Name enthält exakte Materialbezeichnung (z.B. "AC 11 D S" in Name)
-- 60–84: Name enthält Hauptkomponente (z.B. "Asphalt" für "AC 11 D S")
-- 30–59: Name hat thematischen Bezug (z.B. "Straßenbau")
-- <30: nicht listen"""
+- 85–100: EPD-Name enthält TYP-Begriff + SCHICHT-Begriff + KEIN Ausschluss-Begriff
+- 60–84: EPD-Name enthält TYP-Begriff + KEIN Ausschluss-Begriff
+- 40–59: EPD-Name enthält Asphalt/Bitumen + KEIN Ausschluss-Begriff
+- 30–39: EPD-Name hat schwachen Asphalt-Bezug
+- <30: EPD-Name enthält Ausschluss-Begriff (NICHT LISTEN!)"""
 
         return f"""
 {'='*70}
 AUFGABE
 {'='*70}
 
-Finde die {max_results} BESTEN EPD-Matches für JEDE der folgenden Schichten:
+Finde die {max_results} BESTEN EPD-Matches für JEDE der folgenden Schichten.
+NUTZE ZWINGEND die Lookup-Tabellen für korrektes Matching!
 
 {material_list}
 
@@ -206,7 +428,7 @@ Antwort-Format (NUR JSON, ohne Fließtext):
       "matches": [
         {{
           "id": ZAHL,
-          "begruendung": "kurze Begründung",
+          "begruendung": "Begründung: [TYP aus Tabelle] + [SCHICHT aus Tabelle] + Details",
           "confidence": 0-100
         }}
       ]
@@ -220,38 +442,78 @@ Antwort-Format (NUR JSON, ohne Fließtext):
 
 KRITISCH:
 - Verwende die EXAKTE ID (Zahl) aus der EPD-Liste
+- PARSE Material-Bezeichnung mit Lookup-Tabellen!
+- PRÜFE IMMER gegen Ausschluss-Liste!
+- EPDs mit "Betonpflaster", "Beton C20", "Zement" etc. haben Confidence < 30!
 - Sortiere Matches nach Relevanz (beste zuerst)
 - Maximal {max_results} Matches pro Schicht
 - Liefere Ergebnisse für ALLE {len(materials)} Schichten
 """
 
     @staticmethod
-    def _build_task_section(material_name: str, max_results: int) -> str:
+    def _build_task_section(material_name: str, context: Optional[Dict[str, Any]], max_results: int) -> str:
         """Erstellt Aufgabenstellung für Einzelmaterial."""
+        schicht_name = context.get("NAME", "") if context else ""
+        glossary = PromptBuilder._get_material_glossary()
+
         if MatchingConfig.USE_DETAIL_MATCHING:
-            criteria = """Bewertungskriterien:
+            if schicht_name:
+                context_hint = f"""
+Zusatz-Kontext: Schichtname "{schicht_name}" 
+→ Nutze diesen als Bestätigung des Schichtcodes aus der Bezeichnung"""
+            else:
+                context_hint = ""
+
+            criteria = f"""{glossary}
+{context_hint}
+
+Bewertungskriterien:
 - Verwende nur die oben gelisteten Einträge
-- Nutze ALLE verfügbaren Felder (Name, Klassifizierung, technische Beschreibung, Anmerkungen, Anwendungsgebiet)
-- Gib eine kurze Begründung mit konkreten Zitaten aus den Feldern
+- PFLICHT: Nutze die Lookup-Tabellen für EXAKTE Interpretation!
+- Nutze ALLE EPD-Felder (Name, Klassifizierung, technische Beschreibung, Anmerkungen, Anwendungsgebiet)
+- Gib eine kurze Begründung mit konkreten Zitaten
 - Liefere einen Confidence-Score in Prozent (0–100)
 
+Matching-Prozess:
+1. PARSE → finde TYP + SCHICHT aus Material-Bezeichnung
+2. LOOKUP → identifiziere Suchbegriffe aus Tabellen
+3. PRÜFE → verwerfe EPDs mit Ausschluss-Begriffen
+4. SUCHE → finde Suchbegriffe in EPD-Feldern
+5. BERECHNE → Confidence nach Kriterien
+
 Confidence-Kalibrierung:
-- 85–100: exakte Nennung + passende Spezifikation in technischer Beschreibung
-- 60–84: starke semantische Nähe, passende Klassifizierung
-- 30–59: allgemeiner Bezug ohne passende Typologie
-- <30: nicht listen"""
+- 85–100: TYP + SCHICHT + Details + kein Ausschluss
+- 60–84: TYP + SCHICHT + kein Ausschluss
+- 40–59: TYP (Asphalt/Bitumen) + kein Ausschluss
+- <30: Ausschluss-Begriff vorhanden (NICHT LISTEN!)"""
         else:
-            criteria = """Bewertungskriterien:
+            if schicht_name:
+                context_hint = f"""
+Zusatz-Kontext: Schichtname "{schicht_name}" """
+            else:
+                context_hint = ""
+
+            criteria = f"""{glossary}
+{context_hint}
+
+Bewertungskriterien:
 - Verwende nur die oben gelisteten Einträge
-- Matche basierend auf dem Namen
-- Gib eine kurze Begründung mit Bezug zum Namen
+- PFLICHT: Nutze die Lookup-Tabellen für EXAKTE Interpretation!
+- Gib eine kurze Begründung mit Bezug zu Tabellen
 - Liefere einen Confidence-Score in Prozent (0–100)
 
+Matching-Prozess:
+1. PARSE → TYP + SCHICHT aus Material-Bezeichnung
+2. LOOKUP → Suchbegriffe aus Tabellen
+3. PRÜFE → Ausschluss-Liste
+4. VERGLEICHE → EPD-Namen mit Suchbegriffen
+5. BERECHNE → Confidence
+
 Confidence-Kalibrierung:
-- 85–100: Name enthält exakte Materialbezeichnung (z.B. "AC 11 D S" in Name)
-- 60–84: Name enthält Hauptkomponente (z.B. "Asphalt" für "AC 11 D S")
-- 30–59: Name hat thematischen Bezug (z.B. "Straßenbau")
-- <30: nicht listen"""
+- 85–100: Name hat TYP + SCHICHT + kein Ausschluss
+- 60–84: Name hat TYP + kein Ausschluss
+- 40–59: Name hat Asphalt/Bitumen
+- <30: Ausschluss-Begriff (NICHT LISTEN!)"""
 
         return f"""
 {'='*70}
@@ -259,6 +521,7 @@ AUFGABE
 {'='*70}
 
 Finde die {max_results} BESTEN EPD-Matches für das Material "{material_name}".
+NUTZE ZWINGEND die Lookup-Tabellen!
 
 {criteria}
 
@@ -267,7 +530,7 @@ Antwort-Format (NUR JSON, ohne Fließtext):
   "matches": [
     {{
       "id": ZAHL,
-      "begruendung": "kurze Begründung",
+      "begruendung": "Begründung mit Tabellen-Bezug",
       "confidence": 0-100
     }}
   ]
@@ -275,238 +538,8 @@ Antwort-Format (NUR JSON, ohne Fließtext):
 
 KRITISCH:
 - Verwende die EXAKTE ID (Zahl) aus der Liste
-- Sortiere nach Relevanz (beste zuerst)
-- Maximal {max_results} Einträge
-"""
-    """Erstellt strukturierte Prompts für Azure OpenAI."""
-
-    @staticmethod
-    def build_batch_matching_prompt(
-        materials: List[Dict[str, Any]],
-        epds: List[Dict[str, Any]],
-        max_results: int = 10
-    ) -> str:
-        """
-        Erstellt Prompt für MEHRERE Materialien auf einmal (Batch).
-
-        Args:
-            materials: Liste von Material-Dicts mit keys: material_name, context
-            epds: Liste verfügbarer EPD-Einträge
-            max_results: Maximale Anzahl Ergebnisse pro Material
-
-        Returns:
-            Formatierter Prompt-String
-        """
-        sections = [
-            PromptBuilder._build_batch_header(materials),
-            PromptBuilder._build_epd_list(epds),
-            PromptBuilder._build_batch_task_section(materials, max_results)
-        ]
-
-        return "\n".join(s for s in sections if s)
-
-    @staticmethod
-    def build_matching_prompt(
-        material_name: str,
-        epds: List[Dict[str, Any]],
-        context: Optional[Dict[str, Any]] = None,
-        max_results: int = 10
-    ) -> str:
-        """
-        Erstellt Prompt für EINZELNES Material (Legacy, falls Batch nicht genutzt).
-
-        Args:
-            material_name: Name des zu matchenden Materials
-            epds: Liste verfügbarer EPD-Einträge
-            context: Zusätzlicher Kontext (NAME, Volumen, GUID)
-            max_results: Maximale Anzahl Ergebnisse
-
-        Returns:
-            Formatierter Prompt-String
-        """
-        sections = [
-            PromptBuilder._build_header(material_name),
-            PromptBuilder._build_context_section(context),
-            PromptBuilder._build_epd_list(epds),
-            PromptBuilder._build_task_section(material_name, max_results)
-        ]
-
-        return "\n".join(s for s in sections if s)
-
-    @staticmethod
-    def _build_batch_header(materials: List[Dict[str, Any]]) -> str:
-        """Erstellt Header für Batch-Matching."""
-        header = f"Baumaterial-Matching (Batch: {len(materials)} Schichten)\n\n"
-
-        for i, mat in enumerate(materials, 1):
-            material_name = mat.get("material_name", "Unbekannt")
-            context = mat.get("context", {})
-
-            header += f"SCHICHT {i}: \"{material_name}\"\n"
-
-            if context:
-                if context.get("NAME"):
-                    header += f"  - Name: {context['NAME']}\n"
-                if context.get("Volumen"):
-                    header += f"  - Volumen: {context['Volumen']} m³\n"
-                if context.get("GUID"):
-                    header += f"  - IFC GUIDs: {len(context['GUID'])} Elemente\n"
-
-            header += "\n"
-
-        return header
-
-    @staticmethod
-    def _build_header(material_name: str) -> str:
-        """Erstellt Prompt-Header für Einzelmaterial."""
-        return f'Baumaterial-Matching\n\nZu matchen: "{material_name}"'
-
-    @staticmethod
-    def _build_context_section(context: Optional[Dict[str, Any]]) -> str:
-        """Erstellt Kontext-Sektion wenn vorhanden."""
-        if not context:
-            return ""
-
-        lines = []
-        if context.get("NAME"):
-            lines.append(f"- Schicht: {context['NAME']}")
-        if context.get("Volumen"):
-            lines.append(f"- Volumen: {context['Volumen']} m³")
-        if context.get("GUID"):
-            lines.append(f"- IFC GUIDs: {len(context['GUID'])} Elemente")
-
-        if not lines:
-            return ""
-
-        return "\nKontext:\n" + "\n".join(lines)
-
-    @staticmethod
-    def _build_epd_list(epds: List[Dict[str, Any]]) -> str:
-        """Erstellt formatierte EPD-Liste mit allen verfügbaren Detail-Feldern."""
-        header = f"\n{'='*70}\nVERF�ÜGBARE EPD-EINTRÄGE ({len(epds)})\n{'='*70}"
-
-        entries = []
-        for i, epd in enumerate(epds, 1):
-            epd_id = epd.get("id")
-            name = str(epd.get("name", "N/A"))[:200]
-            klassifizierung = str(epd.get("klassifizierung", ""))[:150]
-
-            entry_lines = [
-                f"\n{i}. ID: {epd_id}",
-                f"   Name: {name}"
-            ]
-
-            if klassifizierung:
-                entry_lines.append(f"   Klassifizierung: {klassifizierung}")
-
-            # Detail-Felder hinzufügen (wenn vorhanden)
-            tech_desc = str(epd.get("technischeBeschreibung", ""))[:300]
-            if tech_desc:
-                entry_lines.append(f"   Technische Beschreibung: {tech_desc}...")
-
-            anmerkungen = str(epd.get("anmerkungen", ""))[:250]
-            if anmerkungen:
-                entry_lines.append(f"   Anmerkungen: {anmerkungen}...")
-
-            anwendung = str(epd.get("anwendungsgebiet", ""))[:200]
-            if anwendung:
-                entry_lines.append(f"   Anwendungsgebiet: {anwendung}...")
-
-            entries.append("\n".join(entry_lines))
-
-        return header + "\n" + "\n".join(entries)
-
-    @staticmethod
-    def _build_batch_task_section(materials: List[Dict[str, Any]], max_results: int) -> str:
-        """Erstellt Aufgabenstellung für Batch-Matching."""
-        material_list = "\n".join([
-            f"  - SCHICHT {i}: \"{mat.get('material_name', 'Unbekannt')}\""
-            for i, mat in enumerate(materials, 1)
-        ])
-
-        return f"""
-{'='*70}
-AUFGABE
-{'='*70}
-
-Finde die {max_results} BESTEN EPD-Matches für JEDE der folgenden Schichten:
-
-{material_list}
-
-Bewertungskriterien:
-- Verwende nur die oben gelisteten Einträge
-- Matche basierend auf dem Namen
-- Gib eine kurze Begründung mit Bezug zum Namen
-- Liefere einen Confidence-Score in Prozent (0–100)
-
-Confidence-Kalibrierung:
-- 85–100: Name enthält exakte Materialbezeichnung (z.B. "AC 11 D S" in Name)
-- 60–84: Name enthält Hauptkomponente (z.B. "Asphalt" für "AC 11 D S")
-- 30–59: Name hat thematischen Bezug (z.B. "Straßenbau")
-- <30: nicht listen
-
-Antwort-Format (NUR JSON, ohne Fließtext):
-{{
-  "results": [
-    {{
-      "schicht": 1,
-      "matches": [
-        {{
-          "id": ZAHL,
-          "begruendung": "kurze Begründung mit Zitaten",
-          "confidence": 0-100
-        }}
-      ]
-    }},
-    {{
-      "schicht": 2,
-      "matches": [...]
-    }}
-  ]
-}}
-
-KRITISCH:
-- Verwende die EXAKTE ID (Zahl) aus der EPD-Liste
-- Sortiere Matches nach Relevanz (beste zuerst)
-- Maximal {max_results} Matches pro Schicht
-- Liefere Ergebnisse für ALLE {len(materials)} Schichten
-"""
-
-    @staticmethod
-    def _build_task_section(material_name: str, max_results: int) -> str:
-        """Erstellt Aufgabenstellung für Einzelmaterial."""
-        return f"""
-{'='*70}
-AUFGABE
-{'='*70}
-
-Finde die {max_results} BESTEN EPD-Matches für das Material "{material_name}".
-
-Bewertungskriterien:
-- Verwende nur die oben gelisteten Einträge
-- Nutze ALLE verfügbaren Felder (Name, Klassifizierung, technische Beschreibung, Anmerkungen, Anwendungsgebiet)
-- Gib eine kurze Begründung mit konkreten Zitaten aus den Feldern
-- Liefere einen Confidence-Score in Prozent (0–100)
-
-Confidence-Kalibrierung:
-- 85–100: exakte Nennung + passende Spezifikation in technischer Beschreibung
-- 60–84: starke semantische Nähe, passende Klassifizierung
-- 30–59: allgemeiner Bezug ohne passende Typologie
-- <30: nicht listen
-
-Antwort-Format (NUR JSON, ohne Fließtext):
-{{
-  "matches": [
-    {{
-      "id": ZAHL,
-      "begruendung": "kurze Begründung mit Zitaten",
-      "confidence": 0-100
-    }}
-  ]
-}}
-
-KRITISCH:
-- Verwende die EXAKTE ID (Zahl) aus der Liste
+- PARSE mit Lookup-Tabellen!
+- PRÜFE Ausschluss-Liste!
 - Sortiere nach Relevanz (beste zuerst)
 - Maximal {max_results} Einträge
 """
