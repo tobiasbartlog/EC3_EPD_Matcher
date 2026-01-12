@@ -201,19 +201,22 @@ class PromptBuilder:
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-2️⃣  SCHICHTCODES (POSITION IN DER STRASSE)
+2️⃣  SCHICHTCODES (POSITION IN DER STRASSE) - ⚠️ KRITISCH FÜR MATCHING!
 
 ┌──────┬─────────────────┬────────────────────────────────────────────┐
-│ CODE │  SCHICHTTYP     │  EPD-SUCHBEGRIFFE                          │
+│ CODE │  SCHICHTTYP     │  EPD-NAME MUSS ENTHALTEN (für Conf. ≥60)   │
 ├──────┼─────────────────┼────────────────────────────────────────────┤
-│  D   │  Deckschicht    │  Asphaltdeckschicht, Deckschicht,          │
-│      │  (oberste)      │  Verschleißschicht, Deck, Decke            │
+│  D   │  Deckschicht    │  "Deck" (z.B. Asphaltdeckschicht,          │
+│      │  (oberste)      │  Deckschicht, Tragdeckschicht)             │
+│      │                 │  ⚠️ "Binder" oder "Trag" allein = <50%!    │
 ├──────┼─────────────────┼────────────────────────────────────────────┤
-│  B   │  Binderschicht  │  Asphaltbinder, Binderschicht,             │
-│      │  (mittlere)     │  Binder, Asphalttragschicht                │
+│  B   │  Binderschicht  │  "Binder" (z.B. Asphaltbinder,             │
+│      │  (mittlere)     │  Binderschicht, Asphaltbinderschicht)      │
+│      │                 │  ⚠️ "Deck" oder "Trag" allein = <50%!      │
 ├──────┼─────────────────┼────────────────────────────────────────────┤
-│  T   │  Tragschicht    │  Asphalttragschicht, Tragschicht,          │
-│      │  (unterste)     │  Trag, Asphaltbinder                       │
+│  T   │  Tragschicht    │  "Trag" (z.B. Asphalttragschicht,          │
+│      │  (unterste)     │  Tragschicht, Tragdeckschicht)             │
+│      │                 │  ⚠️ "Deck" oder "Binder" allein = <50%!    │
 └──────┴─────────────────┴────────────────────────────────────────────┘
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -253,28 +256,31 @@ Häufige Werte: 5, 8, 11, 16, 22, 32
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-📖 MATCHING-BEISPIELE MIT LOOKUP:
+📖 MATCHING-BEISPIELE MIT SCHICHT-PRÜFUNG:
 
-Beispiel 1: "AC 11 D S"
-├─ AC → Asphaltbeton → Suche: "Asphaltbeton", "Asphalt", "Bitumen"
-├─ 11 → Größtkorn (ignorieren für Matching)
-├─ D  → Deckschicht → Suche: "Asphaltdeckschicht", "Deckschicht", "Verschleißschicht"
-└─ S  → Splittcharakter (sekundär)
-✓ EPD MUSS enthalten: Asphalt-Begriffe + Deckschicht-Begriffe
+Beispiel 1: "AC 11 D S" (Deckschicht)
+├─ AC → Asphaltbeton ✓
+├─ D  → Deckschicht → EPD-Name MUSS "Deck" enthalten!
+├─ ✅ "Asphaltdeckschicht" → Confidence 85-100%
+├─ ✅ "Tragdeckschicht" → Confidence 60-84% (hat "Deck")
+├─ ❌ "Asphaltbinder" → Confidence <50% (FALSCHER Schichttyp!)
+└─ ❌ "Asphalttragschicht" → Confidence <50% (FALSCHER Schichttyp!)
 
-Beispiel 2: "AC 16 B S SG mit Polymermodifiziertem Bindemittel 10/40-65A"
-├─ AC → Asphaltbeton → Suche: "Asphaltbeton", "Asphalt", "Bitumen"
-├─ 16 → Größtkorn (ignorieren)
-├─ B  → Binderschicht → Suche: "Asphaltbinder", "Binderschicht", "Asphalttragschicht"
-├─ S, SG → Eigenschaften (sekundär)
-└─ Polymermodifiziert → Suche: "polymer", "modifiziert", "Elastomer", "PmB"
-✓ EPD MUSS enthalten: Asphalt-Begriffe + Binder-Begriffe + Polymer-Begriffe
+Beispiel 2: "AC 16 B S SG mit Polymermodifiziertem Bindemittel"
+├─ AC → Asphaltbeton ✓
+├─ B  → Binderschicht → EPD-Name MUSS "Binder" enthalten!
+├─ ✅ "Asphaltbinder" → Confidence 85-100%
+├─ ✅ "Asphaltbinderschicht" → Confidence 85-100%
+├─ ❌ "Asphaltdeckschicht" → Confidence <50% (FALSCHER Schichttyp!)
+└─ ❌ "Asphalttragschicht" → Confidence <50% (FALSCHER Schichttyp!)
 
-Beispiel 3: "SMA 11 S"
-├─ SMA → Splittmastixasphalt → Suche: "Splittmastixasphalt", "Splittmastix", "SMA"
-├─ 11  → Größtkorn (ignorieren)
-└─ S   → Splittcharakter (bestätigt SMA)
-✓ EPD MUSS enthalten: Splittmastix-Begriffe
+Beispiel 3: "AC 22 T S" (Tragschicht)
+├─ AC → Asphaltbeton ✓
+├─ T  → Tragschicht → EPD-Name MUSS "Trag" enthalten!
+├─ ✅ "Asphalttragschicht" → Confidence 85-100%
+├─ ✅ "Tragdeckschicht" → Confidence 60-84% (hat "Trag")
+├─ ❌ "Asphaltbinder" → Confidence <50% (FALSCHER Schichttyp!)
+└─ ❌ "Asphaltdeckschicht" → Confidence <50% (FALSCHER Schichttyp!)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -308,44 +314,46 @@ als Match vorgeschlagen werden:
 🔍 MATCHING-PROZESS (SCHRITT FÜR SCHRITT):
 
 Schritt 1: PARSE die Material-Bezeichnung
-   → Identifiziere: TYP, SCHICHTCODE, BINDEMITTEL-HINWEISE
+   → Identifiziere: TYP (AC/SMA/PA/MA), SCHICHTCODE (D/B/T), BINDEMITTEL
 
-Schritt 2: LOOKUP in obigen Tabellen
-   → Finde passende EPD-Suchbegriffe für TYP + SCHICHTCODE
+Schritt 2: SCHICHTCODE-PRÜFUNG (⚠️ KRITISCH!)
+   → D = EPD-Name muss "Deck" enthalten
+   → B = EPD-Name muss "Binder" enthalten  
+   → T = EPD-Name muss "Trag" enthalten
+   → OHNE korrekten Schicht-Begriff im EPD-Namen: Confidence < 50!
 
 Schritt 3: PRÜFE EPD-Namen gegen AUSSCHLUSS-LISTE
    → Enthält EPD Ausschluss-Begriff? → VERWERFEN (Confidence < 30)
 
-Schritt 4: SUCHE EPD-Namen nach Suchbegriffen
-   → EPD-Name enthält TYP-Begriffe? → Kandidat!
-   → EPD-Name enthält SCHICHT-Begriffe? → Noch besser!
-   → EPD-Name enthält BINDEMITTEL-Begriffe? → Perfekt!
+Schritt 4: SUCHE EPD-Namen nach TYP-Begriffen
+   → EPD-Name enthält "Asphalt", "Bitumen" etc.? → Kandidat
 
-Schritt 5: BERECHNE Confidence
-   → TYP + SCHICHT + Details passen: 85-100%
-   → TYP + SCHICHT passen: 60-84%
-   → Nur TYP passt: 40-59%
+Schritt 5: BERECHNE Confidence (STRIKT!)
+   → Korrekter SCHICHT-Begriff + TYP + Details: 85-100%
+   → Korrekter SCHICHT-Begriff + TYP: 60-84%
+   → NUR TYP, aber FALSCHER/KEIN Schicht-Begriff: 40-49%
    → Nur Bitumen o.ä.: 30-39%
    → Ausschluss-Begriff: < 30%
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-⚠️  KRITISCHE VERWECHSLUNGEN VERMEIDEN:
+⚠️  KRITISCHE SCHICHT-VERWECHSLUNGEN (NIEMALS MACHEN!):
 
-❌ FALSCH: "AC 16 B S" → "Betonpflaster" 
-   (Betonpflaster ist KEIN Asphalt!)
+❌ FALSCH: "AC 11 D S" (Deckschicht) → "Asphaltbinder" (85%)
+   RICHTIG: "AC 11 D S" (Deckschicht) → "Asphaltbinder" (<50%)
+   Grund: D = Deckschicht, aber "Asphaltbinder" = Binderschicht!
 
-❌ FALSCH: "AC 11 D S" → "Beton C20/25"
-   (Normaler Beton ist KEIN Asphalt!)
+❌ FALSCH: "AC 11 D S" (Deckschicht) → "Asphalttragschicht" (80%)
+   RICHTIG: "AC 11 D S" (Deckschicht) → "Asphalttragschicht" (<50%)
+   Grund: D = Deckschicht, aber "Asphalttragschicht" = Tragschicht!
 
-❌ FALSCH: "AC 16 B S" → "Zement"
-   (Zement allein ist KEIN Asphalt!)
+❌ FALSCH: "AC 16 B S" (Binderschicht) → "Asphaltdeckschicht" (85%)
+   RICHTIG: "AC 16 B S" (Binderschicht) → "Asphaltdeckschicht" (<50%)
+   Grund: B = Binderschicht, aber "Asphaltdeckschicht" = Deckschicht!
 
-✓ RICHTIG: "AC 16 B S" → "Asphaltbinder", "Asphalttragschicht"
-
-✓ RICHTIG: "AC 11 D S" → "Asphaltdeckschicht", "Verschleißschicht"
-
-✓ RICHTIG: "SMA 11 S" → "Splittmastixasphalt"
+✓ RICHTIG: "AC 11 D S" → "Asphaltdeckschicht" (85-100%)
+✓ RICHTIG: "AC 16 B S" → "Asphaltbinder" (85-100%)
+✓ RICHTIG: "AC 22 T S" → "Asphalttragschicht" (85-100%)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
@@ -366,47 +374,57 @@ Schritt 5: BERECHNE Confidence
 Bewertungskriterien:
 - Verwende nur die oben gelisteten Einträge
 - PFLICHT: Nutze die Lookup-Tabellen für EXAKTE Interpretation der Bezeichnungen!
-- Der Schichtname (z.B. "Binderschicht", "Deckschicht") gibt zusätzlichen Kontext
+- ⚠️ SCHICHTCODE-MATCHING IST PFLICHT! EPD-Name muss korrekten Schicht-Begriff enthalten!
 - Nutze ALLE verfügbaren EPD-Felder (Name, Klassifizierung, technische Beschreibung, Anmerkungen, Anwendungsgebiet)
 - Gib eine kurze Begründung mit konkreten Zitaten aus den EPD-Feldern
 - Liefere einen Confidence-Score in Prozent (0–100)
 
 Matching-Prozess (befolge STRIKT):
 1. PARSE Material-Bezeichnung → finde TYP-Code (AC/SMA/PA/MA) + SCHICHT-Code (D/B/T)
-2. LOOKUP in Tabellen → identifiziere EPD-Suchbegriffe
+2. SCHICHTCODE-PRÜFUNG → D="Deck", B="Binder", T="Trag" im EPD-Namen?
 3. PRÜFE EPD gegen Ausschluss-Liste → verwerfe wenn Ausschluss-Begriff enthalten
-4. SUCHE in EPD-Feldern nach Suchbegriffen aus Lookup-Tabellen
-5. BERECHNE Confidence nach unten stehenden Kriterien
+4. SUCHE in EPD-Feldern nach TYP-Begriffen aus Lookup-Tabellen
+5. BERECHNE Confidence STRIKT nach Schicht-Matching!
 
-Confidence-Kalibrierung:
-- 85–100: EPD enthält TYP-Begriff + SCHICHT-Begriff + technische Details passen + KEIN Ausschluss-Begriff
-- 60–84: EPD enthält TYP-Begriff + SCHICHT-Begriff + KEIN Ausschluss-Begriff
-- 40–59: EPD enthält TYP-Begriff (z.B. "Asphalt", "Bitumen") + KEIN Ausschluss-Begriff
-- 30–39: EPD hat schwachen Asphalt-Bezug + KEIN Ausschluss-Begriff
-- <30: EPD enthält Ausschluss-Begriff ODER kein Asphalt-Bezug (NICHT LISTEN!)"""
+Confidence-Kalibrierung (⚠️ STRIKT EINHALTEN!):
+- 85–100: EPD-Name enthält KORREKTEN SCHICHT-Begriff (D→"Deck", B→"Binder", T→"Trag") + TYP-Begriff + Details + KEIN Ausschluss
+- 60–84: EPD-Name enthält KORREKTEN SCHICHT-Begriff + TYP-Begriff + KEIN Ausschluss
+- 40–49: EPD-Name enthält TYP-Begriff ABER FALSCHEN oder KEINEN Schicht-Begriff + KEIN Ausschluss
+- 30–39: EPD hat schwachen Asphalt-Bezug + KEIN Ausschluss
+- <30: EPD enthält Ausschluss-Begriff ODER kein Asphalt-Bezug (NICHT LISTEN!)
+
+⚠️ SCHICHT-MATCHING BEISPIELE:
+- Material "AC 11 D S" + EPD "Asphaltbinder" → Confidence <50! (D≠Binder)
+- Material "AC 11 D S" + EPD "Asphaltdeckschicht" → Confidence 85+! (D=Deck ✓)
+- Material "AC 16 B S" + EPD "Asphalttragschicht" → Confidence <50! (B≠Trag)
+- Material "AC 16 B S" + EPD "Asphaltbinder" → Confidence 85+! (B=Binder ✓)"""
         else:
             criteria = f"""{glossary}
 
 Bewertungskriterien:
 - Verwende nur die oben gelisteten Einträge
 - PFLICHT: Nutze die Lookup-Tabellen für EXAKTE Interpretation der Bezeichnungen!
-- Der Schichtname (z.B. "Binderschicht", "Deckschicht") ist zusätzlicher Kontext
+- ⚠️ SCHICHTCODE-MATCHING IST PFLICHT! EPD-Name muss korrekten Schicht-Begriff enthalten!
 - Gib eine kurze Begründung mit Bezug zu den Lookup-Tabellen
 - Liefere einen Confidence-Score in Prozent (0–100)
 
 Matching-Prozess (befolge STRIKT):
 1. PARSE Material-Bezeichnung → finde TYP-Code + SCHICHT-Code
-2. LOOKUP in Tabellen → identifiziere EPD-Suchbegriffe
+2. SCHICHTCODE-PRÜFUNG → D="Deck", B="Binder", T="Trag" im EPD-Namen?
 3. PRÜFE EPD-Name gegen Ausschluss-Liste → verwerfe wenn Ausschluss-Begriff
-4. VERGLEICHE EPD-Namen mit Suchbegriffen aus Lookup-Tabellen
-5. BERECHNE Confidence nach unten stehenden Kriterien
+4. VERGLEICHE EPD-Namen mit TYP-Begriffen aus Lookup-Tabellen
+5. BERECHNE Confidence STRIKT nach Schicht-Matching!
 
-Confidence-Kalibrierung:
-- 85–100: EPD-Name enthält TYP-Begriff + SCHICHT-Begriff + KEIN Ausschluss-Begriff
-- 60–84: EPD-Name enthält TYP-Begriff + KEIN Ausschluss-Begriff
-- 40–59: EPD-Name enthält Asphalt/Bitumen + KEIN Ausschluss-Begriff
+Confidence-Kalibrierung (⚠️ STRIKT EINHALTEN!):
+- 85–100: EPD-Name enthält KORREKTEN SCHICHT-Begriff + TYP-Begriff + KEIN Ausschluss
+- 60–84: EPD-Name enthält KORREKTEN SCHICHT-Begriff + TYP-Begriff + KEIN Ausschluss
+- 40–49: EPD-Name enthält TYP-Begriff ABER FALSCHEN oder KEINEN Schicht-Begriff
 - 30–39: EPD-Name hat schwachen Asphalt-Bezug
-- <30: EPD-Name enthält Ausschluss-Begriff (NICHT LISTEN!)"""
+- <30: EPD-Name enthält Ausschluss-Begriff (NICHT LISTEN!)
+
+⚠️ SCHICHT-MATCHING BEISPIELE:
+- Material "AC 11 D S" + EPD "Asphaltbinder" → Confidence <50! (D≠Binder)
+- Material "AC 11 D S" + EPD "Asphaltdeckschicht" → Confidence 85+! (D=Deck ✓)"""
 
         return f"""
 {'='*70}
@@ -415,6 +433,7 @@ AUFGABE
 
 Finde die {max_results} BESTEN EPD-Matches für JEDE der folgenden Schichten.
 NUTZE ZWINGEND die Lookup-Tabellen für korrektes Matching!
+⚠️ PRÜFE IMMER: Passt der SCHICHTCODE im Material zum SCHICHT-Begriff im EPD-Namen?
 
 {material_list}
 
@@ -428,7 +447,7 @@ Antwort-Format (NUR JSON, ohne Fließtext):
       "matches": [
         {{
           "id": ZAHL,
-          "begruendung": "Begründung: [TYP aus Tabelle] + [SCHICHT aus Tabelle] + Details",
+          "begruendung": "Begründung: [TYP] + [SCHICHT-Prüfung: Material-Code X = EPD enthält Y] + Details",
           "confidence": 0-100
         }}
       ]
@@ -443,7 +462,8 @@ Antwort-Format (NUR JSON, ohne Fließtext):
 KRITISCH:
 - Verwende die EXAKTE ID (Zahl) aus der EPD-Liste
 - PARSE Material-Bezeichnung mit Lookup-Tabellen!
-- PRÜFE IMMER gegen Ausschluss-Liste!
+- ⚠️ SCHICHTCODE PRÜFEN: D→"Deck", B→"Binder", T→"Trag" im EPD-Namen!
+- EPDs mit falschem Schichttyp haben Confidence < 50!
 - EPDs mit "Betonpflaster", "Beton C20", "Zement" etc. haben Confidence < 30!
 - Sortiere Matches nach Relevanz (beste zuerst)
 - Maximal {max_results} Matches pro Schicht
@@ -470,21 +490,22 @@ Zusatz-Kontext: Schichtname "{schicht_name}"
 Bewertungskriterien:
 - Verwende nur die oben gelisteten Einträge
 - PFLICHT: Nutze die Lookup-Tabellen für EXAKTE Interpretation!
+- ⚠️ SCHICHTCODE-MATCHING IST PFLICHT!
 - Nutze ALLE EPD-Felder (Name, Klassifizierung, technische Beschreibung, Anmerkungen, Anwendungsgebiet)
 - Gib eine kurze Begründung mit konkreten Zitaten
 - Liefere einen Confidence-Score in Prozent (0–100)
 
 Matching-Prozess:
 1. PARSE → finde TYP + SCHICHT aus Material-Bezeichnung
-2. LOOKUP → identifiziere Suchbegriffe aus Tabellen
+2. SCHICHTCODE-PRÜFUNG → D="Deck", B="Binder", T="Trag" im EPD-Namen?
 3. PRÜFE → verwerfe EPDs mit Ausschluss-Begriffen
-4. SUCHE → finde Suchbegriffe in EPD-Feldern
-5. BERECHNE → Confidence nach Kriterien
+4. SUCHE → finde TYP-Begriffe in EPD-Feldern
+5. BERECHNE → Confidence STRIKT nach Schicht-Matching!
 
-Confidence-Kalibrierung:
-- 85–100: TYP + SCHICHT + Details + kein Ausschluss
-- 60–84: TYP + SCHICHT + kein Ausschluss
-- 40–59: TYP (Asphalt/Bitumen) + kein Ausschluss
+Confidence-Kalibrierung (⚠️ STRIKT!):
+- 85–100: KORREKTER SCHICHT-Begriff + TYP + Details + kein Ausschluss
+- 60–84: KORREKTER SCHICHT-Begriff + TYP + kein Ausschluss
+- 40–49: TYP vorhanden, aber FALSCHER/KEIN Schicht-Begriff
 - <30: Ausschluss-Begriff vorhanden (NICHT LISTEN!)"""
         else:
             if schicht_name:
@@ -499,20 +520,21 @@ Zusatz-Kontext: Schichtname "{schicht_name}" """
 Bewertungskriterien:
 - Verwende nur die oben gelisteten Einträge
 - PFLICHT: Nutze die Lookup-Tabellen für EXAKTE Interpretation!
+- ⚠️ SCHICHTCODE-MATCHING IST PFLICHT!
 - Gib eine kurze Begründung mit Bezug zu Tabellen
 - Liefere einen Confidence-Score in Prozent (0–100)
 
 Matching-Prozess:
 1. PARSE → TYP + SCHICHT aus Material-Bezeichnung
-2. LOOKUP → Suchbegriffe aus Tabellen
+2. SCHICHTCODE-PRÜFUNG → D="Deck", B="Binder", T="Trag" im EPD-Namen?
 3. PRÜFE → Ausschluss-Liste
-4. VERGLEICHE → EPD-Namen mit Suchbegriffen
-5. BERECHNE → Confidence
+4. VERGLEICHE → EPD-Namen mit TYP-Begriffen
+5. BERECHNE → Confidence STRIKT!
 
-Confidence-Kalibrierung:
-- 85–100: Name hat TYP + SCHICHT + kein Ausschluss
-- 60–84: Name hat TYP + kein Ausschluss
-- 40–59: Name hat Asphalt/Bitumen
+Confidence-Kalibrierung (⚠️ STRIKT!):
+- 85–100: Name hat KORREKTEN SCHICHT-Begriff + TYP + kein Ausschluss
+- 60–84: Name hat KORREKTEN SCHICHT-Begriff + TYP
+- 40–49: Name hat TYP, aber FALSCHEN/KEINEN Schicht-Begriff
 - <30: Ausschluss-Begriff (NICHT LISTEN!)"""
 
         return f"""
@@ -522,6 +544,7 @@ AUFGABE
 
 Finde die {max_results} BESTEN EPD-Matches für das Material "{material_name}".
 NUTZE ZWINGEND die Lookup-Tabellen!
+⚠️ PRÜFE: Passt der SCHICHTCODE zum SCHICHT-Begriff im EPD-Namen?
 
 {criteria}
 
@@ -530,7 +553,7 @@ Antwort-Format (NUR JSON, ohne Fließtext):
   "matches": [
     {{
       "id": ZAHL,
-      "begruendung": "Begründung mit Tabellen-Bezug",
+      "begruendung": "Begründung: [SCHICHT-Prüfung] + [TYP] + Details",
       "confidence": 0-100
     }}
   ]
@@ -539,7 +562,8 @@ Antwort-Format (NUR JSON, ohne Fließtext):
 KRITISCH:
 - Verwende die EXAKTE ID (Zahl) aus der Liste
 - PARSE mit Lookup-Tabellen!
-- PRÜFE Ausschluss-Liste!
+- ⚠️ SCHICHTCODE PRÜFEN: D→"Deck", B→"Binder", T→"Trag"!
+- EPDs mit falschem Schichttyp: Confidence < 50!
 - Sortiere nach Relevanz (beste zuerst)
 - Maximal {max_results} Einträge
 """

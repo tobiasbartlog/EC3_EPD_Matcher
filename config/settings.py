@@ -55,12 +55,12 @@ class MatchingConfig:
     ]
 
     # Limitiert die Anzahl EPDs im Prompt
-    MAX_EPD_IN_PROMPT = int(os.getenv("PROMPT_MAX_EPD", "1000"))
+    MAX_EPD_IN_PROMPT = int(os.getenv("PROMPT_MAX_EPD", "10000"))
 
     USE_FILTER_LABELS = _parse_bool(os.getenv("EPD_USE_FILTER_LABELS", "false"))
 
     # Parallel-Workers für Detail-Loading (nur relevant wenn USE_DETAIL_MATCHING=true)
-    PARALLEL_WORKERS = int(os.getenv("EPD_PARALLEL_WORKERS", "10"))
+    PARALLEL_WORKERS = int(os.getenv("EPD_PARALLEL_WORKERS", "50"))
 
 # Debug-Output (ganz unten in der Datei)
 print(f"\n{'=' * 70}")
