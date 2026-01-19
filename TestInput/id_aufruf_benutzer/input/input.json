@@ -2,7 +2,7 @@
   "Gruppen": [
     {
       "NAME": "Deckschicht",
-      "MATERIAL":"AC 11 D S",
+      "MATERIAL":"Aspahltbeton",
       "GUID": ["guid1", "guid2", "guid3"],
       "Volumen": 42.380
     },
@@ -19,3 +19,4 @@
     "volume_unit": "m3"
   }
 }
+

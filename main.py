@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 from typing import Dict, Any, List
 
+import matching.prompt_builder
 from matching.azure_matcher import AzureEPDMatcher
 from utils.file_handler import load_json, save_json
 
