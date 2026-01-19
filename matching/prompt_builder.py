@@ -3,11 +3,12 @@ from typing import Dict, Any, List, Optional
 
 from config.settings import MatchingConfig
 
-# NEU: Import des Asphalt-Glossars
+# Import des Asphalt-Glossars (ACHTUNG: Dateiname muss asphalt_glossar.py sein!)
 from utils.asphalt_glossar import (
     generate_prompt_glossary,
     generate_material_context,
-    parse_asphalt_bezeichnung,
+    parse_material_input,
+    filter_epds_for_material,
     AUSSCHLUSS_BEGRIFFE
 )
 
@@ -48,7 +49,7 @@ class PromptBuilder:
         max_results: int = 10
     ) -> str:
         """
-        Erstellt Prompt für EINZELNES Material (Legacy, falls Batch nicht genutzt).
+        Erstellt Prompt für EINZELNES Material.
 
         Args:
             material_name: Name des zu matchenden Materials
@@ -78,17 +79,16 @@ class PromptBuilder:
             context = mat.get("context", {})
             schicht_name = context.get("NAME", "")
 
-            # WICHTIG: Schichtname VOR Material nennen!
+            # Schichtname VOR Material nennen
             if schicht_name:
                 header += f"SCHICHT {i}: {schicht_name}\n"
                 header += f"  Material: {material_name}\n"
             else:
                 header += f"SCHICHT {i}: \"{material_name}\"\n"
 
-            # NEU: Parsed Material-Kontext hinzufügen
-            parsed_context = generate_material_context(material_name)
-            if parsed_context and not parsed_context.startswith("Unbekannt"):
-                header += f"  → Parsed: {parsed_context}\n"
+            # Parsed Material-Kontext (nutzt jetzt Fallback!)
+            parsed_context = generate_material_context(material_name, schicht_name)
+            header += f"  → Parsed: {parsed_context}\n"
 
             if context:
                 if context.get("Volumen"):
@@ -112,10 +112,9 @@ class PromptBuilder:
 
         header += f'Material: "{material_name}"\n'
 
-        # NEU: Parsed Kontext
-        parsed_context = generate_material_context(material_name)
-        if parsed_context and not parsed_context.startswith("Unbekannt"):
-            header += f"→ Parsed: {parsed_context}\n"
+        # Parsed Kontext mit Fallback
+        parsed_context = generate_material_context(material_name, schicht_name)
+        header += f"→ Parsed: {parsed_context}\n"
 
         return header
 
@@ -145,7 +144,7 @@ class PromptBuilder:
         header = f"\n{'='*70}\nVERFÜGBARE EPD-EINTRÄGE ({len(epds)})\n{'='*70}"
 
         if MatchingConfig.USE_DETAIL_MATCHING:
-            # Detail-Modus: Name + Klassifizierung + Beschreibungen
+            # Detail-Modus
             entries = []
             for i, epd in enumerate(epds, 1):
                 epd_id = epd.get("id")
@@ -168,13 +167,9 @@ class PromptBuilder:
                 if anmerkungen:
                     entry_lines.append(f"   Anmerkungen: {anmerkungen}...")
 
-                anwendung = str(epd.get("anwendungsgebiet", ""))[:200]
-                if anwendung:
-                    entry_lines.append(f"   Anwendungsgebiet: {anwendung}...")
-
                 entries.append("\n".join(entry_lines))
         else:
-            # Namen-Modus: Nur ID + Name (kompakt)
+            # Namen-Modus (kompakt)
             entries = []
             for i, epd in enumerate(epds, 1):
                 epd_id = epd.get("id")
@@ -185,15 +180,12 @@ class PromptBuilder:
 
     @staticmethod
     def _get_material_glossary() -> str:
-        """
-        Gibt das Asphalt-Glossar für den Prompt zurück.
-        NEU: Nutzt jetzt das zentrale Glossar-Modul!
-        """
+        """Gibt das Asphalt-Glossar für den Prompt zurück."""
         return generate_prompt_glossary()
 
     @staticmethod
     def _get_ausschluss_liste_kompakt() -> str:
-        """Gibt eine kompakte Ausschluss-Liste zurück."""
+        """Gibt kompakte Ausschluss-Liste zurück."""
         return ", ".join(AUSSCHLUSS_BEGRIFFE[:15])
 
     @staticmethod
@@ -204,66 +196,70 @@ class PromptBuilder:
         material_lines = []
         for i, mat in enumerate(materials, 1):
             mat_name = mat.get('material_name', 'Unbekannt')
-            context_name = mat.get('context', {}).get('NAME', 'Unbekannt')
-            parsed = parse_asphalt_bezeichnung(mat_name)
+            context = mat.get('context', {})
+            context_name = context.get('NAME', 'Unbekannt')
+
+            # Parse mit Fallback auf Schichtname!
+            parsed = parse_material_input(mat_name, context_name)
 
             line = f"  - SCHICHT {i} ({context_name}): \"{mat_name}\""
-            if parsed and parsed.get("schicht"):
+
+            if parsed.get("schicht") and parsed.get("schicht_epd_muss_enthalten"):
                 schicht_info = parsed.get("schicht_epd_muss_enthalten", "")
                 line += f"\n    → Schicht {parsed['schicht']}: EPD muss \"{schicht_info}\" enthalten!"
+            elif parsed.get("ist_asphalt"):
+                line += f"\n    → Asphalt erkannt, aber kein Schichtcode gefunden"
+
             material_lines.append(line)
 
         material_list = "\n".join(material_lines)
-
-        # Glossar aus Modul holen
         glossary = PromptBuilder._get_material_glossary()
 
         if MatchingConfig.USE_DETAIL_MATCHING:
             criteria = f"""{glossary}
 
 Bewertungskriterien:
-- Verwende nur die oben gelisteten Einträge
-- PFLICHT: Nutze das Glossar für EXAKTE Interpretation der Bezeichnungen!
+- Verwende nur die oben gelisteten EPD-Einträge
+- PFLICHT: Nutze das Glossar für EXAKTE Interpretation!
 - ⚠️ SCHICHTCODE-MATCHING IST PFLICHT! EPD-Name muss korrekten Schicht-Begriff enthalten!
-- Nutze ALLE verfügbaren EPD-Felder (Name, Klassifizierung, technische Beschreibung, Anmerkungen, Anwendungsgebiet)
-- Gib eine kurze Begründung mit konkreten Zitaten aus den EPD-Feldern
-- Liefere einen Confidence-Score in Prozent (0–100)
+- Nutze ALLE EPD-Felder (Name, Klassifizierung, Beschreibung, Anmerkungen)
+- Gib eine kurze Begründung mit konkreten Zitaten
+- Liefere Confidence-Score in Prozent (0–100)
 
-Matching-Prozess (befolge STRIKT):
+Matching-Prozess (STRIKT befolgen):
 1. LIES den "→ Parsed:" Kontext für jede Schicht!
 2. SCHICHTCODE-PRÜFUNG → D="Deck", B="Binder", T="Trag" im EPD-Namen?
-3. PRÜFE EPD gegen Ausschluss-Liste → verwerfe wenn Ausschluss-Begriff enthalten
-4. SUCHE in EPD-Feldern nach TYP-Begriffen aus Glossar
+3. PRÜFE EPD gegen Ausschluss-Liste
+4. SUCHE in EPD-Feldern nach TYP-Begriffen
 5. BERECHNE Confidence STRIKT nach Schicht-Matching!
 
-Confidence-Kalibrierung (⚠️ STRIKT EINHALTEN!):
-- 85–100: EPD-Name enthält KORREKTEN SCHICHT-Begriff + TYP-Begriff + Details + KEIN Ausschluss
-- 60–84: EPD-Name enthält KORREKTEN SCHICHT-Begriff + TYP-Begriff + KEIN Ausschluss
-- 40–49: EPD-Name enthält TYP-Begriff ABER FALSCHEN oder KEINEN Schicht-Begriff
-- 30–39: EPD hat schwachen Asphalt-Bezug
-- <30: EPD enthält Ausschluss-Begriff ODER kein Asphalt-Bezug (NICHT LISTEN!)
+Confidence-Kalibrierung (⚠️ STRIKT!):
+- 85–100: KORREKTER SCHICHT-Begriff + TYP + Details
+- 60–84: KORREKTER SCHICHT-Begriff + TYP
+- 40–49: TYP vorhanden, aber FALSCHER/KEIN Schicht-Begriff
+- <30: Ausschluss-Begriff (NICHT LISTEN!)
 
 Ausschluss-Begriffe: {PromptBuilder._get_ausschluss_liste_kompakt()}"""
         else:
             criteria = f"""{glossary}
 
 Bewertungskriterien:
-- Verwende nur die oben gelisteten Einträge
+- Verwende nur die oben gelisteten EPD-Einträge
 - PFLICHT: Nutze das Glossar für EXAKTE Interpretation!
 - ⚠️ SCHICHTCODE-MATCHING IST PFLICHT!
-- Gib eine kurze Begründung mit Bezug zum Glossar
-- Liefere einen Confidence-Score in Prozent (0–100)
+- Gib eine kurze Begründung
+- Liefere Confidence-Score in Prozent (0–100)
 
-Matching-Prozess (befolge STRIKT):
+Matching-Prozess (STRIKT):
 1. LIES den "→ Parsed:" Kontext für jede Schicht!
 2. SCHICHTCODE-PRÜFUNG → D="Deck", B="Binder", T="Trag" im EPD-Namen?
 3. PRÜFE EPD-Name gegen Ausschluss-Liste
-4. VERGLEICHE EPD-Namen mit TYP-Begriffen aus Glossar
+4. VERGLEICHE mit TYP-Begriffen
 5. BERECHNE Confidence STRIKT!
 
-Confidence-Kalibrierung (⚠️ STRIKT EINHALTEN!):
-- 85–100: EPD-Name enthält KORREKTEN SCHICHT-Begriff + TYP-Begriff
-- 60–84: EPD-Name enthält KORREKTEN SCHICHT-Begriff + TYP-Begriff
+Confidence-Kalibrierung (⚠️ STRIKT!):
+- 85–100: KORREKTER SCHICHT-Begriff + TYP
+- 60–84: KORREKTER SCHICHT-Begriff + TYP
 - 40–49: TYP vorhanden, aber FALSCHER/KEIN Schicht-Begriff
 - <30: Ausschluss-Begriff (NICHT LISTEN!)
 
@@ -305,9 +301,9 @@ KRITISCH:
 - Verwende die EXAKTE ID (Zahl) aus der EPD-Liste
 - LIES den "→ Parsed:" Kontext für jede Schicht!
 - ⚠️ SCHICHTCODE PRÜFEN: D→"Deck", B→"Binder", T→"Trag" im EPD-Namen!
-- EPDs mit falschem Schichttyp haben Confidence < 50!
-- EPDs mit Ausschluss-Begriffen haben Confidence < 30!
-- Sortiere Matches nach Relevanz (beste zuerst)
+- EPDs mit falschem Schichttyp: Confidence < 50!
+- EPDs mit Ausschluss-Begriffen: Confidence < 30!
+- Sortiere nach Relevanz (beste zuerst)
 - Maximal {max_results} Matches pro Schicht
 - Liefere Ergebnisse für ALLE {len(materials)} Schichten
 """
@@ -318,10 +314,11 @@ KRITISCH:
         schicht_name = context.get("NAME", "") if context else ""
         glossary = PromptBuilder._get_material_glossary()
 
-        # Parsed Kontext
-        parsed = parse_asphalt_bezeichnung(material_name)
+        # Parse mit Fallback!
+        parsed = parse_material_input(material_name, schicht_name)
+
         parsed_hint = ""
-        if parsed and parsed.get("schicht"):
+        if parsed.get("schicht") and parsed.get("schicht_epd_muss_enthalten"):
             schicht_muss = parsed.get("schicht_epd_muss_enthalten", "")
             parsed_hint = f"""
 ⚠️ WICHTIG für dieses Material:
@@ -330,52 +327,43 @@ KRITISCH:
 """
 
         if MatchingConfig.USE_DETAIL_MATCHING:
-            if schicht_name:
-                context_hint = f"""
-Zusatz-Kontext: Schichtname "{schicht_name}" 
-→ Bestätigt den Schichtcode aus der Bezeichnung"""
-            else:
-                context_hint = ""
+            context_hint = f"\nZusatz-Kontext: Schichtname \"{schicht_name}\"" if schicht_name else ""
 
             criteria = f"""{glossary}
 {context_hint}
 {parsed_hint}
 
 Bewertungskriterien:
-- Verwende nur die oben gelisteten Einträge
-- PFLICHT: Nutze das Glossar für EXAKTE Interpretation!
+- Verwende nur die oben gelisteten EPD-Einträge
+- PFLICHT: Nutze das Glossar!
 - ⚠️ SCHICHTCODE-MATCHING IST PFLICHT!
-- Nutze ALLE EPD-Felder (Name, Klassifizierung, technische Beschreibung, Anmerkungen, Anwendungsgebiet)
-- Gib eine kurze Begründung mit konkreten Zitaten
-- Liefere einen Confidence-Score in Prozent (0–100)
+- Nutze ALLE EPD-Felder
+- Gib Begründung mit Zitaten
+- Confidence-Score 0–100
 
 Confidence-Kalibrierung (⚠️ STRIKT!):
-- 85–100: KORREKTER SCHICHT-Begriff + TYP + Details + kein Ausschluss
-- 60–84: KORREKTER SCHICHT-Begriff + TYP + kein Ausschluss
+- 85–100: KORREKTER SCHICHT-Begriff + TYP + Details
+- 60–84: KORREKTER SCHICHT-Begriff + TYP
 - 40–49: TYP vorhanden, aber FALSCHER/KEIN Schicht-Begriff
-- <30: Ausschluss-Begriff vorhanden (NICHT LISTEN!)
+- <30: Ausschluss-Begriff (NICHT LISTEN!)
 
 Ausschluss-Begriffe: {PromptBuilder._get_ausschluss_liste_kompakt()}"""
         else:
-            if schicht_name:
-                context_hint = f"""
-Zusatz-Kontext: Schichtname "{schicht_name}" """
-            else:
-                context_hint = ""
+            context_hint = f"\nZusatz-Kontext: Schichtname \"{schicht_name}\"" if schicht_name else ""
 
             criteria = f"""{glossary}
 {context_hint}
 {parsed_hint}
 
 Bewertungskriterien:
-- Verwende nur die oben gelisteten Einträge
-- PFLICHT: Nutze das Glossar für EXAKTE Interpretation!
+- Verwende nur die oben gelisteten EPD-Einträge
+- PFLICHT: Nutze das Glossar!
 - ⚠️ SCHICHTCODE-MATCHING IST PFLICHT!
-- Gib eine kurze Begründung mit Bezug zum Glossar
-- Liefere einen Confidence-Score in Prozent (0–100)
+- Gib Begründung
+- Confidence-Score 0–100
 
 Confidence-Kalibrierung (⚠️ STRIKT!):
-- 85–100: KORREKTER SCHICHT-Begriff + TYP + kein Ausschluss
+- 85–100: KORREKTER SCHICHT-Begriff + TYP
 - 60–84: KORREKTER SCHICHT-Begriff + TYP
 - 40–49: TYP vorhanden, aber FALSCHER/KEIN Schicht-Begriff
 - <30: Ausschluss-Begriff (NICHT LISTEN!)
@@ -405,8 +393,8 @@ Antwort-Format (NUR JSON, ohne Fließtext):
 
 KRITISCH:
 - Verwende die EXAKTE ID (Zahl) aus der Liste
-- ⚠️ SCHICHTCODE PRÜFEN: EPD-Name muss korrekten Schicht-Begriff enthalten!
+- ⚠️ SCHICHTCODE PRÜFEN!
 - EPDs mit falschem Schichttyp: Confidence < 50!
-- Sortiere nach Relevanz (beste zuerst)
+- Sortiere nach Relevanz
 - Maximal {max_results} Einträge
 """
