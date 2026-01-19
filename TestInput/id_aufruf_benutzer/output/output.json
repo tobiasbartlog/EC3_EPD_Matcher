@@ -10,14 +10,10 @@
       ],
       "Volumen": 42.38,
       "id": [
-        "401",
-        "402",
-        "864"
+        "934"
       ],
       "id_confidence": {
-        "401": 85,
-        "402": 85,
-        "864": 60
+        "934": 100
       }
     },
     {
@@ -29,12 +25,40 @@
       ],
       "Volumen": 57.42,
       "id": [
-        "38",
-        "135"
+        "38"
       ],
       "id_confidence": {
-        "38": 85,
-        "135": 60
+        "38": 100
+      }
+    },
+    {
+      "NAME": "Tragschicht",
+      "MATERIAL": "A4-Asphalttragschicht 0/32 CS",
+      "GUID": [
+        "guid4",
+        "guid5"
+      ],
+      "Volumen": 57.42,
+      "id": [
+        "39"
+      ],
+      "id_confidence": {
+        "39": 100
+      }
+    },
+    {
+      "NAME": "Schottertrag",
+      "MATERIAL": "A4-Schottertragschicht 0/45",
+      "GUID": [
+        "guid4",
+        "guid5"
+      ],
+      "Volumen": 57.42,
+      "id": [
+        "39"
+      ],
+      "id_confidence": {
+        "39": 100
       }
     }
   ],

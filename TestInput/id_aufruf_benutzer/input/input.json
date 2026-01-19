@@ -11,6 +11,18 @@
       "MATERIAL": "AC 16 B S SG mit Polymermodifiziertem Bindemittel 10/40-65A",
       "GUID": ["guid4", "guid5"],
       "Volumen": 57.420
+    },
+    {
+      "NAME": "Tragschicht",
+      "MATERIAL": "A4-Asphalttragschicht 0/32 CS",
+      "GUID": ["guid4", "guid5"],
+      "Volumen": 57.420
+    },
+    {
+      "NAME": "Schottertrag",
+      "MATERIAL": "A4-Schottertragschicht 0/45",
+      "GUID": ["guid4", "guid5"],
+      "Volumen": 57.420
     }
 ],
   "export_info": {
