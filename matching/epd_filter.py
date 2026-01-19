@@ -1,12 +1,13 @@
 """
 EPD-Vorfilterung für effizienteres Matching.
 
-FIXED VERSION: Schärfere Confidence-Validierung
-- Bitumenbahnen werden für Asphalt-Schichten ausgeschlossen
-- Bessere Erkennung von Material-Typ-Mismatches
+Stage 3: Pre-filtering
+Stage 5: Confidence Validation
 """
 
 from typing import Dict, Any, List, Optional, Tuple
+
+from config.settings import ValidationConfig, GlossarConfig
 from utils.asphalt_glossar import (
     parse_material_input,
     filter_epds_for_material,
@@ -17,7 +18,7 @@ from utils.asphalt_glossar import (
 
 
 class EPDFilter:
-    """Filtert EPDs basierend auf Material-Analyse."""
+    """Stage 3: Filtert EPDs basierend auf Material-Analyse."""
 
     def __init__(self, max_epds_per_material: int = 100, debug: bool = False):
         self.max_epds = max_epds_per_material
@@ -117,23 +118,20 @@ class EPDFilter:
 
 
 # =============================================================================
-# CONFIDENCE-VALIDATOR (VERBESSERT!)
+# STAGE 5: CONFIDENCE-VALIDATOR
 # =============================================================================
 
 # Begriffe die für bestimmte Materialtypen NICHT passen
 MATERIAL_MISMATCHES: Dict[str, List[str]] = {
-    # Für Asphalt-Schichten sind diese EPDs NICHT geeignet:
     "asphalt": [
         "bitumenbahn", "bitumenbahnen", "dachbahn", "dachabdichtung",
         "schweißbahn", "kaltselbstklebebahn", "dampfsperre",
-        "emulsion",  # Bitumen-Emulsion ist kein Asphalt-Ersatz!
+        "emulsion",
     ],
-    # Für Schotter/Kies sind diese NICHT geeignet:
     "schotter": [
         "bitumenbahn", "bitumenbahnen", "asphalt", "gussasphalt",
         "emulsion", "dampfsperre",
     ],
-    # Für Dämmstoffe sind diese NICHT geeignet:
     "daemmung": [
         "bitumenbahn", "bitumenbahnen", "asphalt", "gussasphalt",
         "schotter", "kies", "splitt", "emulsion",
@@ -142,7 +140,7 @@ MATERIAL_MISMATCHES: Dict[str, List[str]] = {
 
 
 class ConfidenceValidator:
-    """Validiert und korrigiert GPT-Confidence-Werte basierend auf Regeln."""
+    """Stage 5: Validiert und korrigiert GPT-Confidence-Werte."""
 
     @staticmethod
     def validate_match(
@@ -153,40 +151,38 @@ class ConfidenceValidator:
         """
         Validiert einen einzelnen Match und korrigiert Confidence wenn nötig.
 
-        VERBESSERT: Erkennt jetzt auch Material-Typ-Mismatches!
+        Verwendet ValidationConfig für Schwellwerte.
         """
         epd_name = epd.get("name", "").lower()
         epd_klassifizierung = epd.get("klassifizierung", "").lower()
         combined = f"{epd_name} {epd_klassifizierung}"
 
-        # 1. Ausschluss-Check (Standard)
+        max_excluded = ValidationConfig.MAX_CONFIDENCE_EXCLUDED
+
+        # 1. Ausschluss-Check
         for excl in AUSSCHLUSS_BEGRIFFE:
             if excl.lower() in combined:
-                return min(gpt_confidence, 25), f"Ausschluss-Begriff '{excl}' gefunden"
+                return min(gpt_confidence, max_excluded), f"Ausschluss-Begriff '{excl}' gefunden"
 
-        # 2. NEU: Material-Typ-Mismatch Check
+        # 2. Material-Typ-Mismatch Check
         material_type = ConfidenceValidator._get_material_type(parsed_material)
         if material_type:
             mismatches = MATERIAL_MISMATCHES.get(material_type, [])
             for mismatch in mismatches:
                 if mismatch in combined:
-                    return min(gpt_confidence, 20), f"'{mismatch}' passt nicht zu {material_type}"
+                    return min(gpt_confidence, max_excluded), f"'{mismatch}' passt nicht zu {material_type}"
 
-        # 3. Schicht-Check (wenn Material eine Schicht hat)
+        # 3. Schicht-Check
         schicht_muss = parsed_material.get("schicht_epd_muss_enthalten", "")
         if schicht_muss:
             schicht_muss_lower = schicht_muss.lower()
             if schicht_muss_lower not in combined:
-                # Falscher Schichttyp - aber nicht so hart bestrafen wenn
-                # der Material-Typ grundsätzlich stimmt
                 ist_gleicher_typ = ConfidenceValidator._ist_gleicher_material_typ(
                     combined, parsed_material
                 )
                 if ist_gleicher_typ:
-                    # Gleicher Typ, nur falsche Schicht -> moderate Strafe
                     return min(gpt_confidence, 60), f"Schicht-Begriff '{schicht_muss}' fehlt"
                 else:
-                    # Komplett falscher Typ -> harte Strafe
                     return min(gpt_confidence, 35), f"Schicht-Begriff '{schicht_muss}' fehlt + falscher Typ"
 
         # 4. Typ-Check für Asphalt
@@ -197,7 +193,6 @@ class ConfidenceValidator:
         if parsed_material.get("ist_asphalt") and not ist_asphalt:
             return min(gpt_confidence, 35), "Kein Asphalt-Bezug im EPD"
 
-        # Alles ok
         return gpt_confidence, "Validiert"
 
     @staticmethod
@@ -205,18 +200,14 @@ class ConfidenceValidator:
         """Ermittelt den Material-Typ für Mismatch-Prüfung."""
         material_orig = parsed_material.get("material_original", "").lower()
         schicht_orig = parsed_material.get("schicht_name_original", "").lower()
-
         combined = f"{material_orig} {schicht_orig}"
 
         if parsed_material.get("ist_asphalt"):
             return "asphalt"
-
         if any(kw in combined for kw in ["schotter", "kies", "splitt", "frostschutz"]):
             return "schotter"
-
         if any(kw in combined for kw in ["dämm", "xps", "eps", "pur", "pir", "mineralwolle"]):
             return "daemmung"
-
         return None
 
     @staticmethod
@@ -235,9 +226,10 @@ class ConfidenceValidator:
         """
         Validiert alle Batch-Ergebnisse.
 
-        VERBESSERT: Filtert jetzt Ergebnisse mit Confidence < 25 komplett raus!
+        Filtert Ergebnisse unter MIN_CONFIDENCE raus.
         """
         epd_by_id = {str(e.get("id")): e for e in epds}
+        min_confidence = ValidationConfig.MIN_CONFIDENCE
 
         validated_results = []
 
@@ -258,8 +250,8 @@ class ConfidenceValidator:
                     epd, parsed, gpt_confidence
                 )
 
-                # NEU: Matches mit Confidence < 25 komplett rausfiltern!
-                if new_confidence < 25:
+                # Filter by MIN_CONFIDENCE
+                if new_confidence < min_confidence:
                     continue
 
                 validated_match = match.copy()
@@ -272,7 +264,6 @@ class ConfidenceValidator:
 
                 validated_matches.append(validated_match)
 
-            # Neu sortieren nach korrigierter Confidence
             validated_matches.sort(key=lambda x: x.get("confidence", 0), reverse=True)
             validated_results.append(validated_matches)
 
@@ -285,26 +276,19 @@ class ConfidenceValidator:
 
 if __name__ == "__main__":
     print("=" * 70)
-    print("EPD-FILTER TEST (VERBESSERT)")
+    print("EPD-FILTER TEST")
     print("=" * 70)
+    print(f"ValidationConfig.MIN_CONFIDENCE: {ValidationConfig.MIN_CONFIDENCE}")
+    print(f"ValidationConfig.MAX_CONFIDENCE_EXCLUDED: {ValidationConfig.MAX_CONFIDENCE_EXCLUDED}")
 
-    # Test: Mismatch-Erkennung
     test_cases = [
-        # (EPD-Name, Material, Schicht, Erwartung)
         ("Bitumenbahnen G 200 S4", "AC 16 D S", "Deckschicht", "sollte niedrig sein"),
-        ("Asphalttragschicht", "AC 16 D S", "Deckschicht", "sollte mittel sein (falsche Schicht)"),
+        ("Asphalttragschicht", "AC 16 D S", "Deckschicht", "sollte mittel sein"),
         ("Asphaltdeckschicht", "AC 16 D S", "Deckschicht", "sollte hoch sein"),
-        ("XPS Dämmstoff", "XPS", "Wärmedämmung", "sollte hoch sein"),
-        ("Bitumen Emulsion", "XPS", "Wärmedämmung", "sollte niedrig sein"),
     ]
 
     for epd_name, material, schicht, erwartung in test_cases:
         epd = {"name": epd_name, "klassifizierung": ""}
         parsed = parse_material_input(material, schicht)
-
         new_conf, grund = ConfidenceValidator.validate_match(epd, parsed, 85)
-
-        print(f"\nEPD: {epd_name}")
-        print(f"Material: {material} / {schicht}")
-        print(f"Confidence: 85 → {new_conf} ({grund})")
-        print(f"Erwartung: {erwartung}")
+        print(f"\nEPD: {epd_name} → {new_conf}% ({grund})")

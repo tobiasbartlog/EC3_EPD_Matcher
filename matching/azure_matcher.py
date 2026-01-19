@@ -1,10 +1,19 @@
-"""Azure OpenAI basierter EPD-Matcher mit Glossar-Integration."""
+"""Azure OpenAI basierter EPD-Matcher mit Glossar-Integration.
+
+Nutzt die Stage-basierte Konfiguration aus settings.py.
+"""
 import json
 import re
 from typing import Dict, Any, List, Optional
 from openai import AzureOpenAI
 
-from config.settings import AzureConfig, MatchingConfig, GlossarConfig
+from config.settings import (
+    AzureConfig,
+    MatchingConfig,
+    FilterConfig,
+    GlossarConfig,
+    ValidationConfig
+)
 from api.auth import TokenManager
 from api.epd_client import EPDAPIClient
 from matching.prompt_builder import PromptBuilder
@@ -25,11 +34,11 @@ class AzureEPDMatcher:
         self._batch_detailed_results: List[List[Dict[str, Any]]] = []
         self._epd_cache: Optional[List[Dict[str, Any]]] = None
 
-        # Glossar-Filter initialisieren (wenn aktiviert)
+        # Glossar-Filter initialisieren (Stage 3)
         self._epd_filter = None
-        if GlossarConfig.USE_GLOSSAR and GlossarConfig.USE_GLOSSAR_FILTER:
+        if GlossarConfig.USE_GLOSSAR and FilterConfig.USE_GLOSSAR_FILTER:
             self._epd_filter = EPDFilter(
-                max_epds_per_material=GlossarConfig.FILTER_MAX_PER_MATERIAL,
+                max_epds_per_material=FilterConfig.FILTER_MAX_PER_MATERIAL,
                 debug=GlossarConfig.DEBUG
             )
 
@@ -42,7 +51,7 @@ class AzureEPDMatcher:
     def match_materials_batch(
         self,
         materials: List[Dict[str, Any]],
-        max_results: int = 10
+        max_results: int = None
     ) -> List[Dict[str, Any]]:
         """
         Findet passende EPDs für MEHRERE Materialien auf einmal (Batch).
@@ -54,6 +63,9 @@ class AzureEPDMatcher:
         Returns:
             Liste von Ergebnis-Dicts: [{"ids": [...], "confidence": {...}}, ...]
         """
+        if max_results is None:
+            max_results = MatchingConfig.MAX_RESULTS
+
         print(f"\n{'='*70}\nBATCH-MATCHING: {len(materials)} Materialien\n{'='*70}")
 
         epds = self._epd_cache
@@ -62,10 +74,10 @@ class AzureEPDMatcher:
             return [{"ids": [], "confidence": {}} for _ in materials]
 
         # ===============================================
-        # NEU: Glossar-basierte Vorfilterung
+        # STAGE 3: Glossar-basierte Vorfilterung
         # ===============================================
         if self._epd_filter:
-            print("\n📊 Glossar-Vorfilterung aktiv...")
+            print("\n📊 [Stage 3] Glossar-Vorfilterung aktiv...")
             filter_result = self._epd_filter.filter_for_materials(epds, materials)
             filtered_epds = filter_result["combined_epds"]
 
@@ -75,22 +87,27 @@ class AzureEPDMatcher:
                 print(EPDFilter.get_filter_summary(filter_result['stats']))
         else:
             filtered_epds = epds
-            print(f"✅ Verwende {len(filtered_epds)} EPDs (keine Vorfilterung)")
+            print(f"✅ [Stage 3] Übersprungen - Verwende {len(filtered_epds)} EPDs")
 
-        # Azure-Anfrage
+        # ===============================================
+        # STAGE 4: Azure LLM Anfrage
+        # ===============================================
+        print(f"\n🤖 [Stage 4] Sende an Azure OpenAI ({AzureConfig.DEPLOYMENT})...")
         response = self._query_azure_batch(materials, filtered_epds, max_results)
 
         # Response parsen
         all_matches = self._parse_batch_response(response, len(materials))
 
         # ===============================================
-        # NEU: Confidence-Nachvalidierung
+        # STAGE 5: Confidence-Nachvalidierung
         # ===============================================
-        if GlossarConfig.USE_GLOSSAR and GlossarConfig.USE_CONFIDENCE_VALIDATION:
-            print("\n🔍 Confidence-Nachvalidierung...")
+        if GlossarConfig.USE_GLOSSAR and ValidationConfig.USE_CONFIDENCE_VALIDATION:
+            print("\n🔍 [Stage 5] Confidence-Nachvalidierung...")
             all_matches = ConfidenceValidator.validate_batch_results(
                 all_matches, materials, filtered_epds
             )
+        else:
+            print("\n⏭️  [Stage 5] Übersprungen")
 
         # Ergebnisse formatieren
         results = []
@@ -126,10 +143,10 @@ class AzureEPDMatcher:
         self,
         material_name: str,
         context: Optional[Dict[str, Any]] = None,
-        max_results: int = 10
+        max_results: int = None
     ) -> List[str]:
         """
-        Findet passende EPDs für ein Material.
+        Findet passende EPDs für ein Material (Einzelmodus).
 
         Args:
             material_name: Name des zu matchenden Materials
@@ -139,6 +156,9 @@ class AzureEPDMatcher:
         Returns:
             Liste von EPD-IDs (Top-Matches)
         """
+        if max_results is None:
+            max_results = MatchingConfig.MAX_RESULTS
+
         print(f"\n{'='*70}\nMATCHING: {material_name}\n{'='*70}")
 
         epds = self._epd_cache
@@ -146,27 +166,27 @@ class AzureEPDMatcher:
             print("❌ Keine EPDs im Cache verfügbar!")
             return []
 
-        # Glossar-Vorfilterung für einzelnes Material
+        # Stage 3: Glossar-Vorfilterung für einzelnes Material
         if self._epd_filter:
             schicht_name = context.get("NAME", "") if context else ""
             filtered_epds, parsed = self._epd_filter.filter_for_single_material(
                 epds, material_name, schicht_name
             )
-            print(f"📊 Gefiltert: {len(epds)} → {len(filtered_epds)} EPDs")
+            print(f"📊 [Stage 3] Gefiltert: {len(epds)} → {len(filtered_epds)} EPDs")
 
             if GlossarConfig.DEBUG and parsed.get("ist_asphalt"):
                 print(f"   Parsed: {parsed.get('typ', 'N/A')} / {parsed.get('schicht', 'N/A')}")
         else:
             filtered_epds = epds
 
-        # Azure abfragen
+        # Stage 4: Azure abfragen
         response = self._query_azure(material_name, filtered_epds, context, max_results)
 
         # Ergebnisse parsen
         matches = self._parse_response(response)
 
-        # Nachvalidierung
-        if GlossarConfig.USE_GLOSSAR and GlossarConfig.USE_CONFIDENCE_VALIDATION:
+        # Stage 5: Nachvalidierung
+        if GlossarConfig.USE_GLOSSAR and ValidationConfig.USE_CONFIDENCE_VALIDATION:
             schicht_name = context.get("NAME", "") if context else ""
             parsed = parse_material_input(material_name, schicht_name)
 
@@ -182,6 +202,9 @@ class AzureEPDMatcher:
                 validated_matches.append(match)
 
             matches = sorted(validated_matches, key=lambda x: x.get("confidence", 0), reverse=True)
+
+            # Filter by MIN_CONFIDENCE
+            matches = [m for m in matches if m.get("confidence", 0) >= ValidationConfig.MIN_CONFIDENCE]
 
         self._last_results = self._enrich_results(matches, filtered_epds)
 
@@ -219,30 +242,27 @@ class AzureEPDMatcher:
     def _print_initialization_info(self) -> None:
         """Gibt Initialisierungs-Informationen aus."""
         print("\n" + "=" * 70)
-        print("AZURE EPD MATCHER INITIALISIERUNG")
+        print("AZURE EPD MATCHER - INITIALISIERUNG")
         print("=" * 70)
         print(f"✓ Endpoint: {AzureConfig.ENDPOINT}")
         print(f"✓ Deployment: {AzureConfig.DEPLOYMENT}")
         print(f"✓ Online-DB: ~{self.api_client.count_epds()} EPDs total")
-
-        if GlossarConfig.USE_GLOSSAR:
-            print(f"✓ Glossar: AKTIVIERT")
-            print(f"  - Vorfilterung: {GlossarConfig.USE_GLOSSAR_FILTER}")
-            print(f"  - Max EPDs/Material: {GlossarConfig.FILTER_MAX_PER_MATERIAL}")
-            print(f"  - Confidence-Validierung: {GlossarConfig.USE_CONFIDENCE_VALIDATION}")
-        else:
-            print(f"✓ Glossar: DEAKTIVIERT (Legacy-Modus)")
-
+        print()
+        print("Stage-Konfiguration:")
+        print(f"  [2] Material Parsing:    {'✓' if GlossarConfig.USE_GLOSSAR else '✗'}")
+        print(f"  [3] EPD Pre-filtering:   {'✓' if FilterConfig.USE_GLOSSAR_FILTER else '✗'}")
+        print(f"  [4] LLM Matching:        ✓ (immer aktiv)")
+        print(f"  [5] Confidence Valid.:   {'✓' if ValidationConfig.USE_CONFIDENCE_VALIDATION else '✗'}")
         print("=" * 70 + "\n")
 
     def _load_and_cache_epds(self) -> None:
         """Lädt EPDs einmal und speichert sie im Cache."""
         print("[1/2] Lade EPD-Liste...")
 
-        # Label-Filter nur wenn Glossar NICHT aktiv
+        # Label-Filter nur wenn Glossar NICHT aktiv (Legacy-Modus)
         labels = []
-        if not GlossarConfig.USE_GLOSSAR and MatchingConfig.USE_FILTER_LABELS:
-            labels = MatchingConfig.FILTER_LABELS
+        if not GlossarConfig.USE_GLOSSAR and FilterConfig.USE_FILTER_LABELS:
+            labels = FilterConfig.FILTER_LABELS
 
         epds_list = self.api_client.list_epds(labels=labels, fields=None)
 
@@ -258,7 +278,7 @@ class AzureEPDMatcher:
             print(f"⚠️  Begrenze auf {MatchingConfig.MAX_EPD_IN_PROMPT} EPDs")
             epds_list = epds_list[:MatchingConfig.MAX_EPD_IN_PROMPT]
 
-        # Detail-Daten laden (wenn konfiguriert)
+        # Detail-Daten laden (Stage 4 Erweiterung)
         if MatchingConfig.USE_DETAIL_MATCHING:
             print(f"\n[2/2] Lade Detail-Daten...")
             epd_ids = [epd["id"] for epd in epds_list if epd.get("id")]
@@ -282,7 +302,7 @@ class AzureEPDMatcher:
         max_results: int
     ) -> str:
         """Sendet Batch-Prompt an Azure OpenAI."""
-        print("\n[1/2] Erstelle Batch-Prompt und sende an Azure...")
+        print("\n[Stage 4a] Erstelle Batch-Prompt...")
 
         prompt = PromptBuilder.build_batch_matching_prompt(
             materials=materials,
@@ -294,7 +314,7 @@ class AzureEPDMatcher:
         print(f"  Enthält: {len(materials)} Schichten + {len(epds)} EPDs")
 
         response = self._call_azure_api(prompt)
-        print(f"✅ Response: {len(response)} Zeichen")
+        print(f"✅ [Stage 4b] Response: {len(response)} Zeichen")
 
         return response
 
@@ -306,7 +326,7 @@ class AzureEPDMatcher:
         max_results: int
     ) -> str:
         """Sendet Prompt an Azure OpenAI."""
-        print("\n[1/2] Erstelle Prompt und sende an Azure...")
+        print("\n[Stage 4a] Erstelle Prompt...")
 
         prompt = PromptBuilder.build_matching_prompt(
             material_name=material_name,
@@ -318,7 +338,7 @@ class AzureEPDMatcher:
         print(f"  Prompt: {len(prompt)} Zeichen (~{len(prompt)//4} Tokens)")
 
         response = self._call_azure_api(prompt)
-        print(f"✅ Response: {len(response)} Zeichen")
+        print(f"✅ [Stage 4b] Response: {len(response)} Zeichen")
 
         return response
 
@@ -362,7 +382,7 @@ class AzureEPDMatcher:
 
     def _parse_batch_response(self, response: str, expected_count: int) -> List[List[Dict[str, Any]]]:
         """Parst Batch-Response und extrahiert Matches für alle Schichten."""
-        print("\n[2/2] Parse Batch-Matches...")
+        print("\n[Stage 4c] Parse Batch-Matches...")
 
         if not response:
             return [[] for _ in range(expected_count)]
@@ -421,7 +441,7 @@ class AzureEPDMatcher:
 
     def _parse_response(self, response: str) -> List[Dict[str, Any]]:
         """Parst Azure-Response und extrahiert Matches."""
-        print("\n[2/2] Parse Matches...")
+        print("\n[Stage 4c] Parse Matches...")
 
         if not response:
             return []

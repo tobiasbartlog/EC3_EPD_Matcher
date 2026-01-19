@@ -189,9 +189,8 @@ Materialien:
 
 WICHTIGE REGELN:
 1. Liefere bis zu {max_results} Matches pro Schicht - Stoppe wenn keine sinnvollen Matches mehr vorhanden sind!
-2. Auch Matches mit Confidence 30-50 sind akzeptabel wenn nichts Besseres passt
-3. Verwende nur IDs aus der obigen EPD-Liste
-4. Sortiere nach Relevanz (beste zuerst)
+2. Verwende nur IDs aus der obigen EPD-Liste
+3. Sortiere nach Relevanz (beste zuerst)
 
 Confidence-Bewertung:
 - 85-100: Sehr guter Match (Name/Typ stimmt gut überein)
