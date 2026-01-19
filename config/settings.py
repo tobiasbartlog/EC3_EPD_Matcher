@@ -40,34 +40,78 @@ class APIConfig:
 class MatchingConfig:
     """EPD Matching Konfiguration."""
 
-    # NEU: Matching-Modus umschalten
+    # Matching-Modus
     USE_DETAIL_MATCHING = _parse_bool(os.getenv("EPD_USE_DETAIL_MATCHING", "false"))
 
-    # Spalten (nur relevant wenn USE_DETAIL_MATCHING=true)
+    # Spalten für Detail-Matching
     COLUMNS: List[str] = [
         c.strip() for c in
         os.getenv("EPD_MATCHING_COLUMNS", "name,technischeBeschreibung,anmerkungen").split(",")
     ]
 
+    # Limitiert die Anzahl EPDs im Prompt
+    MAX_EPD_IN_PROMPT = int(os.getenv("PROMPT_MAX_EPD", "200"))
+
+    # Parallel-Workers für Detail-Loading
+    PARALLEL_WORKERS = int(os.getenv("EPD_PARALLEL_WORKERS", "10"))
+
+    # Legacy Label-Filter (wird durch Glossar ersetzt)
+    USE_FILTER_LABELS = _parse_bool(os.getenv("EPD_USE_FILTER_LABELS", "false"))
     FILTER_LABELS: List[str] = [
         s.strip() for s in
         os.getenv("EPD_FILTER_LABELS", "").split(",") if s.strip()
     ]
 
-    # Limitiert die Anzahl EPDs im Prompt
-    MAX_EPD_IN_PROMPT = int(os.getenv("PROMPT_MAX_EPD", "10000"))
 
-    USE_FILTER_LABELS = _parse_bool(os.getenv("EPD_USE_FILTER_LABELS", "false"))
+class GlossarConfig:
+    """Asphalt-Glossar Konfiguration (NEU)."""
 
-    # Parallel-Workers für Detail-Loading (nur relevant wenn USE_DETAIL_MATCHING=true)
-    PARALLEL_WORKERS = int(os.getenv("EPD_PARALLEL_WORKERS", "50"))
+    # Glossar aktivieren (intelligentes Parsing + Prompt-Verbesserung)
+    USE_GLOSSAR = _parse_bool(os.getenv("EPD_USE_GLOSSAR", "true"))
 
-# Debug-Output (ganz unten in der Datei)
-print(f"\n{'=' * 70}")
-print("CONFIG DEBUG")
-print(f"{'=' * 70}")
-print(f"EPD_USE_DETAIL_MATCHING (env): '{os.getenv('EPD_USE_DETAIL_MATCHING', 'NOT SET')}'")
-print(f"USE_DETAIL_MATCHING (parsed): {MatchingConfig.USE_DETAIL_MATCHING}")
-print(f"PROMPT_MAX_EPD: {MatchingConfig.MAX_EPD_IN_PROMPT}")
-print(f"PARALLEL_WORKERS: {MatchingConfig.PARALLEL_WORKERS}")
-print(f"{'=' * 70}\n")
+    # Vorfilterung aktivieren (reduziert EPDs vor GPT-Call)
+    USE_GLOSSAR_FILTER = _parse_bool(os.getenv("EPD_USE_GLOSSAR_FILTER", "true"))
+
+    # Maximale EPDs pro Material bei Vorfilterung
+    FILTER_MAX_PER_MATERIAL = int(os.getenv("EPD_GLOSSAR_FILTER_MAX", "100"))
+
+    # Confidence-Nachvalidierung aktivieren
+    USE_CONFIDENCE_VALIDATION = _parse_bool(os.getenv("EPD_USE_CONFIDENCE_VALIDATION", "true"))
+
+    # Debug-Output
+    DEBUG = _parse_bool(os.getenv("EPD_GLOSSAR_DEBUG", "false"))
+
+
+# =============================================================================
+# DEBUG OUTPUT
+# =============================================================================
+
+def print_config_debug():
+    """Gibt Konfiguration zur Laufzeit aus."""
+    print(f"\n{'=' * 70}")
+    print("CONFIG DEBUG")
+    print(f"{'=' * 70}")
+    print(f"Azure Deployment: {AzureConfig.DEPLOYMENT}")
+    print(f"EPD API: {APIConfig.BASE_URL}")
+    print()
+    print("Matching:")
+    print(f"  USE_DETAIL_MATCHING: {MatchingConfig.USE_DETAIL_MATCHING}")
+    print(f"  MAX_EPD_IN_PROMPT: {MatchingConfig.MAX_EPD_IN_PROMPT}")
+    print(f"  PARALLEL_WORKERS: {MatchingConfig.PARALLEL_WORKERS}")
+    print()
+    print("Glossar (NEU):")
+    print(f"  USE_GLOSSAR: {GlossarConfig.USE_GLOSSAR}")
+    print(f"  USE_GLOSSAR_FILTER: {GlossarConfig.USE_GLOSSAR_FILTER}")
+    print(f"  FILTER_MAX_PER_MATERIAL: {GlossarConfig.FILTER_MAX_PER_MATERIAL}")
+    print(f"  USE_CONFIDENCE_VALIDATION: {GlossarConfig.USE_CONFIDENCE_VALIDATION}")
+    print(f"  DEBUG: {GlossarConfig.DEBUG}")
+    print()
+    print("Legacy Filter:")
+    print(f"  USE_FILTER_LABELS: {MatchingConfig.USE_FILTER_LABELS}")
+    if MatchingConfig.USE_FILTER_LABELS:
+        print(f"  FILTER_LABELS: {MatchingConfig.FILTER_LABELS[:5]}...")
+    print(f"{'=' * 70}\n")
+
+
+# Automatischer Debug-Output beim Import
+print_config_debug()

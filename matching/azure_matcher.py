@@ -1,17 +1,22 @@
-"""Azure OpenAI basierter EPD-Matcher mit Cache."""
+"""Azure OpenAI basierter EPD-Matcher mit Glossar-Integration."""
 import json
 import re
 from typing import Dict, Any, List, Optional
 from openai import AzureOpenAI
 
-from config.settings import AzureConfig, MatchingConfig
+from config.settings import AzureConfig, MatchingConfig, GlossarConfig
 from api.auth import TokenManager
 from api.epd_client import EPDAPIClient
 from matching.prompt_builder import PromptBuilder
 
+# Glossar-Import (optional, nur wenn aktiviert)
+if GlossarConfig.USE_GLOSSAR:
+    from matching.epd_filter import EPDFilter, ConfidenceValidator
+    from utils.asphalt_glossar import parse_material_input
+
 
 class AzureEPDMatcher:
-    """EPD-Matcher mit Azure OpenAI und Online-API (mit EPD-Cache)."""
+    """EPD-Matcher mit Azure OpenAI und Online-API (mit EPD-Cache und Glossar)."""
 
     def __init__(self):
         self._validate_config()
@@ -19,10 +24,19 @@ class AzureEPDMatcher:
         self._last_results: List[Dict[str, Any]] = []
         self._batch_detailed_results: List[List[Dict[str, Any]]] = []
         self._epd_cache: Optional[List[Dict[str, Any]]] = None
+
+        # Glossar-Filter initialisieren (wenn aktiviert)
+        self._epd_filter = None
+        if GlossarConfig.USE_GLOSSAR and GlossarConfig.USE_GLOSSAR_FILTER:
+            self._epd_filter = EPDFilter(
+                max_epds_per_material=GlossarConfig.FILTER_MAX_PER_MATERIAL,
+                debug=GlossarConfig.DEBUG
+            )
+
         self._print_initialization_info()
 
-        # WICHTIG: EPDs werden EINMAL beim Start geladen
-        print("🔄 Lade EPD-Datenbank einmalig (wird für alle Schichten wiederverwendet)...")
+        # EPDs einmalig laden
+        print("🔄 Lade EPD-Datenbank einmalig...")
         self._load_and_cache_epds()
 
     def match_materials_batch(
@@ -42,47 +56,64 @@ class AzureEPDMatcher:
         """
         print(f"\n{'='*70}\nBATCH-MATCHING: {len(materials)} Materialien\n{'='*70}")
 
-        # Nutze gecachte EPDs
         epds = self._epd_cache
         if not epds:
             print("❌ Keine EPDs im Cache verfügbar!")
             return [{"ids": [], "confidence": {}} for _ in materials]
 
-        print(f"✅ Verwende {len(epds)} gecachte EPDs für alle {len(materials)} Schichten")
+        # ===============================================
+        # NEU: Glossar-basierte Vorfilterung
+        # ===============================================
+        if self._epd_filter:
+            print("\n📊 Glossar-Vorfilterung aktiv...")
+            filter_result = self._epd_filter.filter_for_materials(epds, materials)
+            filtered_epds = filter_result["combined_epds"]
 
-        # EINE Azure-Anfrage für ALLE Materialien!
-        response = self._query_azure_batch(materials, epds, max_results)
+            print(f"   {len(epds)} → {len(filtered_epds)} EPDs ({filter_result['stats']['reduction_percent']}% Reduktion)")
+
+            if GlossarConfig.DEBUG:
+                print(EPDFilter.get_filter_summary(filter_result['stats']))
+        else:
+            filtered_epds = epds
+            print(f"✅ Verwende {len(filtered_epds)} EPDs (keine Vorfilterung)")
+
+        # Azure-Anfrage
+        response = self._query_azure_batch(materials, filtered_epds, max_results)
 
         # Response parsen
         all_matches = self._parse_batch_response(response, len(materials))
+
+        # ===============================================
+        # NEU: Confidence-Nachvalidierung
+        # ===============================================
+        if GlossarConfig.USE_GLOSSAR and GlossarConfig.USE_CONFIDENCE_VALIDATION:
+            print("\n🔍 Confidence-Nachvalidierung...")
+            all_matches = ConfidenceValidator.validate_batch_results(
+                all_matches, materials, filtered_epds
+            )
 
         # Ergebnisse formatieren
         results = []
         enriched_all = []
 
         for schicht_idx, matches in enumerate(all_matches):
-            # IDs extrahieren
             ids = [m["uuid"] for m in matches[:max_results]]
-
-            # Confidence-Map erstellen
             confidence_map = {
                 m["uuid"]: m["confidence"]
                 for m in matches
                 if m.get("confidence") is not None
             }
 
-            # Namen für spätere Abfrage speichern (für get_last_results)
-            enriched = self._enrich_results(matches, epds)
+            enriched = self._enrich_results(matches, filtered_epds)
             enriched_all.append(enriched)
             if schicht_idx == 0:
-                self._last_results = enriched  # Speichere erste Schicht
+                self._last_results = enriched
 
             results.append({
                 "ids": ids,
                 "confidence": confidence_map
             })
 
-            # Ausgabe
             mat_name = materials[schicht_idx].get("material_name", "Unbekannt")
             print(f"  Schicht {schicht_idx+1} ({mat_name}): {len(ids)} Matches")
 
@@ -98,7 +129,7 @@ class AzureEPDMatcher:
         max_results: int = 10
     ) -> List[str]:
         """
-        Findet passende EPDs für ein Material (nutzt gecachte Daten).
+        Findet passende EPDs für ein Material.
 
         Args:
             material_name: Name des zu matchenden Materials
@@ -110,22 +141,50 @@ class AzureEPDMatcher:
         """
         print(f"\n{'='*70}\nMATCHING: {material_name}\n{'='*70}")
 
-        # Nutze gecachte EPDs - KEINE API-Calls!
         epds = self._epd_cache
         if not epds:
             print("❌ Keine EPDs im Cache verfügbar!")
             return []
 
-        print(f"✅ Verwende {len(epds)} gecachte EPDs (kein erneutes Laden)")
+        # Glossar-Vorfilterung für einzelnes Material
+        if self._epd_filter:
+            schicht_name = context.get("NAME", "") if context else ""
+            filtered_epds, parsed = self._epd_filter.filter_for_single_material(
+                epds, material_name, schicht_name
+            )
+            print(f"📊 Gefiltert: {len(epds)} → {len(filtered_epds)} EPDs")
+
+            if GlossarConfig.DEBUG and parsed.get("ist_asphalt"):
+                print(f"   Parsed: {parsed.get('typ', 'N/A')} / {parsed.get('schicht', 'N/A')}")
+        else:
+            filtered_epds = epds
 
         # Azure abfragen
-        response = self._query_azure(material_name, epds, context, max_results)
+        response = self._query_azure(material_name, filtered_epds, context, max_results)
 
-        # Ergebnisse parsen und speichern
+        # Ergebnisse parsen
         matches = self._parse_response(response)
-        self._last_results = self._enrich_results(matches, epds)
 
-        # Ausgabe und Rückgabe
+        # Nachvalidierung
+        if GlossarConfig.USE_GLOSSAR and GlossarConfig.USE_CONFIDENCE_VALIDATION:
+            schicht_name = context.get("NAME", "") if context else ""
+            parsed = parse_material_input(material_name, schicht_name)
+
+            validated_matches = []
+            for match in matches:
+                epd = next((e for e in filtered_epds if str(e.get("id")) == match["uuid"]), {})
+                new_conf, grund = ConfidenceValidator.validate_match(
+                    epd, parsed, match.get("confidence", 50)
+                )
+                match["confidence"] = new_conf
+                if new_conf != match.get("confidence"):
+                    match["begruendung"] += f" [Korrigiert: {grund}]"
+                validated_matches.append(match)
+
+            matches = sorted(validated_matches, key=lambda x: x.get("confidence", 0), reverse=True)
+
+        self._last_results = self._enrich_results(matches, filtered_epds)
+
         self._print_results(matches)
         return [m["uuid"] for m in matches[:max_results]]
 
@@ -165,22 +224,26 @@ class AzureEPDMatcher:
         print(f"✓ Endpoint: {AzureConfig.ENDPOINT}")
         print(f"✓ Deployment: {AzureConfig.DEPLOYMENT}")
         print(f"✓ Online-DB: ~{self.api_client.count_epds()} EPDs total")
+
+        if GlossarConfig.USE_GLOSSAR:
+            print(f"✓ Glossar: AKTIVIERT")
+            print(f"  - Vorfilterung: {GlossarConfig.USE_GLOSSAR_FILTER}")
+            print(f"  - Max EPDs/Material: {GlossarConfig.FILTER_MAX_PER_MATERIAL}")
+            print(f"  - Confidence-Validierung: {GlossarConfig.USE_CONFIDENCE_VALIDATION}")
+        else:
+            print(f"✓ Glossar: DEAKTIVIERT (Legacy-Modus)")
+
         print("=" * 70 + "\n")
 
     def _load_and_cache_epds(self) -> None:
-        """
-        Lädt EPDs EINMAL und speichert sie im Cache.
-        Wird nur beim Initialisieren aufgerufen!
-        """
+        """Lädt EPDs einmal und speichert sie im Cache."""
         print("[1/2] Lade EPD-Liste...")
 
-        labels = (
-            MatchingConfig.FILTER_LABELS
-            if MatchingConfig.USE_FILTER_LABELS
-            else []
-        )
+        # Label-Filter nur wenn Glossar NICHT aktiv
+        labels = []
+        if not GlossarConfig.USE_GLOSSAR and MatchingConfig.USE_FILTER_LABELS:
+            labels = MatchingConfig.FILTER_LABELS
 
-        # Schritt 1: Liste laden (schnell)
         epds_list = self.api_client.list_epds(labels=labels, fields=None)
 
         if not epds_list:
@@ -190,41 +253,27 @@ class AzureEPDMatcher:
 
         print(f"✅ {len(epds_list)} EPDs gefunden")
 
-        # Schritt 2: Auf Limit begrenzen
+        # Limit anwenden
         if len(epds_list) > MatchingConfig.MAX_EPD_IN_PROMPT:
             print(f"⚠️  Begrenze auf {MatchingConfig.MAX_EPD_IN_PROMPT} EPDs")
             epds_list = epds_list[:MatchingConfig.MAX_EPD_IN_PROMPT]
 
-        # Schritt 3: Detail-Daten laden (abhängig von Config)
+        # Detail-Daten laden (wenn konfiguriert)
         if MatchingConfig.USE_DETAIL_MATCHING:
-            print(f"\n[2/2] Lade Detail-Daten (dauert ca. {len(epds_list)//MatchingConfig.PARALLEL_WORKERS} Sekunden)...")
-            print(f"  Modus: DETAIL-MATCHING (höhere Qualität, mehr Tokens)")
+            print(f"\n[2/2] Lade Detail-Daten...")
             epd_ids = [epd["id"] for epd in epds_list if epd.get("id")]
 
-            if not epd_ids:
-                print("⚠️  Keine IDs gefunden, verwende Listen-Daten")
-                self._epd_cache = epds_list
-                return
+            if epd_ids:
+                epds_details = self.api_client.get_epd_details(
+                    epd_ids, max_workers=MatchingConfig.PARALLEL_WORKERS
+                )
+                if epds_details:
+                    self._epd_cache = epds_details
+                    print(f"✅ Cache bereit: {len(self._epd_cache)} EPDs mit Details")
+                    return
 
-            epds_details = self.api_client.get_epd_details(
-                epd_ids,
-                max_workers=MatchingConfig.PARALLEL_WORKERS
-            )
-
-            if not epds_details:
-                print("⚠️  Keine Details geladen, verwende Listen-Daten")
-                self._epd_cache = epds_list
-            else:
-                self._epd_cache = epds_details
-                print(f"✅ Cache bereit: {len(self._epd_cache)} EPDs mit Details")
-                print(f"   Geschätzte Tokens: ~{len(self._epd_cache) * 500 // 4}\n")
-        else:
-            print(f"\n[2/2] Verwende nur Basis-Daten (Namen)")
-            print(f"  Modus: NAMEN-MATCHING (schneller, weniger Tokens)")
-            self._epd_cache = epds_list
-            print(f"✅ Cache bereit: {len(self._epd_cache)} EPDs (nur Namen)")
-            print(f"   Geschätzte Tokens: ~{len(self._epd_cache) * 50 // 4}")
-            print(f"   Token-Einsparung: ~90% gegenüber Detail-Matching!\n")
+        self._epd_cache = epds_list
+        print(f"✅ Cache bereit: {len(self._epd_cache)} EPDs (nur Namen)\n")
 
     def _query_azure_batch(
         self,
@@ -323,7 +372,6 @@ class AzureEPDMatcher:
         if fence_match:
             response = fence_match.group(1)
 
-        # JSON parsen
         try:
             data = json.loads(response)
         except json.JSONDecodeError:
@@ -336,12 +384,10 @@ class AzureEPDMatcher:
         if not isinstance(data, dict) or "results" not in data:
             return [[] for _ in range(expected_count)]
 
-        # Matches pro Schicht extrahieren
         all_matches = []
         results = data.get("results", [])
 
         for i in range(expected_count):
-            # Finde Ergebnis für Schicht i+1
             schicht_result = None
             for r in results:
                 if r.get("schicht") == i + 1:
@@ -352,7 +398,6 @@ class AzureEPDMatcher:
                 all_matches.append([])
                 continue
 
-            # Parse Matches für diese Schicht
             matches = []
             for item in schicht_result.get("matches", []):
                 if not isinstance(item, dict):
@@ -381,12 +426,10 @@ class AzureEPDMatcher:
         if not response:
             return []
 
-        # JSON aus Markdown-Code-Block extrahieren
         fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", response)
         if fence_match:
             response = fence_match.group(1)
 
-        # JSON parsen
         try:
             data = json.loads(response)
         except json.JSONDecodeError:
@@ -399,7 +442,6 @@ class AzureEPDMatcher:
         if not isinstance(data, dict):
             return []
 
-        # Matches normalisieren
         results = []
         for item in data.get("matches", []):
             if not isinstance(item, dict):
@@ -455,14 +497,10 @@ class AzureEPDMatcher:
         if matches:
             print(f"✅ {len(matches)} Matches gefunden:")
             for i, m in enumerate(matches[:5], 1):
-                conf = (
-                    f" ({m['confidence']}%)"
-                    if m.get('confidence') is not None
-                    else ""
-                )
+                conf = f" ({m['confidence']}%)" if m.get('confidence') is not None else ""
                 reason = m.get('begruendung', '')[:80]
                 print(f"  {i}. ID {m['uuid']}{conf} – {reason}...")
         else:
             print("⚠️  Keine Matches gefunden")
 
-        print(f"\n✅ Matching abgeschlossen: {len(matches)} IDs zurückgegeben\n{'='*70}\n")
+        print(f"\n✅ Matching abgeschlossen\n{'='*70}\n")

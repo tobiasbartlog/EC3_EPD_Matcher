@@ -55,12 +55,25 @@
       ],
       "Volumen": 57.42,
       "id": [
-        "39",
-        "839"
+        "39"
       ],
       "id_confidence": {
-        "39": 100,
-        "839": 60
+        "39": 100
+      }
+    },
+    {
+      "NAME": "Wärmedämmung",
+      "MATERIAL": "XPS",
+      "GUID": [
+        "guid4",
+        "guid5"
+      ],
+      "Volumen": 57.42,
+      "id": [
+        "247"
+      ],
+      "id_confidence": {
+        "247": 100
       }
     }
   ],
