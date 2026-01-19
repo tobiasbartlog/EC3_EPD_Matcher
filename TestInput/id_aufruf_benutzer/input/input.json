@@ -23,12 +23,6 @@
       "MATERIAL": "A4-Schottertragschicht 0/45",
       "GUID": ["guid4", "guid5"],
       "Volumen": 57.420
-    },
-    {
-      "NAME": "Wärmedämmung",
-      "MATERIAL": "XPS",
-      "GUID": ["guid4", "guid5"],
-      "Volumen": 57.420
     }
 ],
   "export_info": {

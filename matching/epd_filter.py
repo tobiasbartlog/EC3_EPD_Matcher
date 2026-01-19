@@ -1,21 +1,9 @@
 """
 EPD-Vorfilterung für effizienteres Matching.
 
-Dieses Modul filtert EPDs VOR dem GPT-Call basierend auf:
-1. Asphalt-Typ (AC, SMA, MA, PA)
-2. Schicht-Code (D, B, T)
-3. Ausschluss-Begriffe
-
-Vorteile:
-- ~80% weniger Tokens pro Request
-- Höhere Matching-Qualität (GPT sieht nur relevante EPDs)
-- Schneller + günstiger
-
-Verwendung:
-    from matching.epd_filter import EPDFilter
-
-    filter = EPDFilter()
-    filtered_epds = filter.filter_for_materials(all_epds, materials)
+FIXED VERSION: Schärfere Confidence-Validierung
+- Bitumenbahnen werden für Asphalt-Schichten ausgeschlossen
+- Bessere Erkennung von Material-Typ-Mismatches
 """
 
 from typing import Dict, Any, List, Optional, Tuple
@@ -32,11 +20,6 @@ class EPDFilter:
     """Filtert EPDs basierend auf Material-Analyse."""
 
     def __init__(self, max_epds_per_material: int = 100, debug: bool = False):
-        """
-        Args:
-            max_epds_per_material: Maximale EPDs pro Material nach Filterung
-            debug: Debug-Output aktivieren
-        """
         self.max_epds = max_epds_per_material
         self.debug = debug
 
@@ -45,19 +28,7 @@ class EPDFilter:
             all_epds: List[Dict[str, Any]],
             materials: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
-        """
-        Filtert EPDs für mehrere Materialien.
-
-        Args:
-            all_epds: Alle verfügbaren EPDs
-            materials: Liste von Material-Dicts mit keys: material_name, context
-
-        Returns:
-            Dict mit:
-            - combined_epds: Vereinigte EPD-Liste für alle Materialien
-            - per_material: Dict mit EPDs pro Material-Index
-            - stats: Statistiken zur Filterung
-        """
+        """Filtert EPDs für mehrere Materialien."""
         all_relevant_ids = set()
         per_material = {}
         stats = {
@@ -70,15 +41,11 @@ class EPDFilter:
             material_name = mat.get("material_name", "")
             schicht_name = mat.get("context", {}).get("NAME", "")
 
-            # Parse Material
             parsed = parse_material_input(material_name, schicht_name)
-
-            # Filtere EPDs
             primaer, sekundaer = filter_epds_for_material(
                 all_epds, parsed, self.max_epds
             )
 
-            # Speichere Ergebnisse
             combined = primaer + sekundaer
             per_material[idx] = {
                 "parsed": parsed,
@@ -87,11 +54,9 @@ class EPDFilter:
                 "combined": combined
             }
 
-            # Sammle alle relevanten IDs
             for epd in combined:
                 all_relevant_ids.add(epd.get("id"))
 
-            # Stats
             stats["filtered_per_material"].append({
                 "material": material_name,
                 "schicht": schicht_name,
@@ -105,7 +70,6 @@ class EPDFilter:
                 print(f"    Parsed: {parsed.get('typ', 'N/A')} / {parsed.get('schicht', 'N/A')}")
                 print(f"    Primär: {len(primaer)}, Sekundär: {len(sekundaer)}")
 
-        # Kombinierte EPD-Liste erstellen (keine Duplikate)
         combined_epds = [epd for epd in all_epds if epd.get("id") in all_relevant_ids]
 
         stats["combined_count"] = len(combined_epds)
@@ -128,20 +92,9 @@ class EPDFilter:
             material_name: str,
             schicht_name: Optional[str] = None
     ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
-        """
-        Filtert EPDs für ein einzelnes Material.
-
-        Args:
-            all_epds: Alle verfügbaren EPDs
-            material_name: Material-Bezeichnung
-            schicht_name: Optionaler Schichtname aus IFC
-
-        Returns:
-            Tuple: (gefilterte_epds, parsed_material)
-        """
+        """Filtert EPDs für ein einzelnes Material."""
         parsed = parse_material_input(material_name, schicht_name)
         primaer, sekundaer = filter_epds_for_material(all_epds, parsed, self.max_epds)
-
         return primaer + sekundaer, parsed
 
     @staticmethod
@@ -164,8 +117,29 @@ class EPDFilter:
 
 
 # =============================================================================
-# CONFIDENCE-VALIDATOR (Nachvalidierung der GPT-Ergebnisse)
+# CONFIDENCE-VALIDATOR (VERBESSERT!)
 # =============================================================================
+
+# Begriffe die für bestimmte Materialtypen NICHT passen
+MATERIAL_MISMATCHES: Dict[str, List[str]] = {
+    # Für Asphalt-Schichten sind diese EPDs NICHT geeignet:
+    "asphalt": [
+        "bitumenbahn", "bitumenbahnen", "dachbahn", "dachabdichtung",
+        "schweißbahn", "kaltselbstklebebahn", "dampfsperre",
+        "emulsion",  # Bitumen-Emulsion ist kein Asphalt-Ersatz!
+    ],
+    # Für Schotter/Kies sind diese NICHT geeignet:
+    "schotter": [
+        "bitumenbahn", "bitumenbahnen", "asphalt", "gussasphalt",
+        "emulsion", "dampfsperre",
+    ],
+    # Für Dämmstoffe sind diese NICHT geeignet:
+    "daemmung": [
+        "bitumenbahn", "bitumenbahnen", "asphalt", "gussasphalt",
+        "schotter", "kies", "splitt", "emulsion",
+    ],
+}
+
 
 class ConfidenceValidator:
     """Validiert und korrigiert GPT-Confidence-Werte basierend auf Regeln."""
@@ -179,32 +153,43 @@ class ConfidenceValidator:
         """
         Validiert einen einzelnen Match und korrigiert Confidence wenn nötig.
 
-        Args:
-            epd: EPD-Eintrag
-            parsed_material: Parsed Material-Info
-            gpt_confidence: Von GPT vorgeschlagene Confidence
-
-        Returns:
-            Tuple: (korrigierte_confidence, grund)
+        VERBESSERT: Erkennt jetzt auch Material-Typ-Mismatches!
         """
         epd_name = epd.get("name", "").lower()
         epd_klassifizierung = epd.get("klassifizierung", "").lower()
         combined = f"{epd_name} {epd_klassifizierung}"
 
-        # 1. Ausschluss-Check
+        # 1. Ausschluss-Check (Standard)
         for excl in AUSSCHLUSS_BEGRIFFE:
             if excl.lower() in combined:
                 return min(gpt_confidence, 25), f"Ausschluss-Begriff '{excl}' gefunden"
 
-        # 2. Schicht-Check (wenn Material eine Schicht hat)
+        # 2. NEU: Material-Typ-Mismatch Check
+        material_type = ConfidenceValidator._get_material_type(parsed_material)
+        if material_type:
+            mismatches = MATERIAL_MISMATCHES.get(material_type, [])
+            for mismatch in mismatches:
+                if mismatch in combined:
+                    return min(gpt_confidence, 20), f"'{mismatch}' passt nicht zu {material_type}"
+
+        # 3. Schicht-Check (wenn Material eine Schicht hat)
         schicht_muss = parsed_material.get("schicht_epd_muss_enthalten", "")
         if schicht_muss:
             schicht_muss_lower = schicht_muss.lower()
             if schicht_muss_lower not in combined:
-                # Falscher Schichttyp
-                return min(gpt_confidence, 45), f"Schicht-Begriff '{schicht_muss}' fehlt im EPD-Namen"
+                # Falscher Schichttyp - aber nicht so hart bestrafen wenn
+                # der Material-Typ grundsätzlich stimmt
+                ist_gleicher_typ = ConfidenceValidator._ist_gleicher_material_typ(
+                    combined, parsed_material
+                )
+                if ist_gleicher_typ:
+                    # Gleicher Typ, nur falsche Schicht -> moderate Strafe
+                    return min(gpt_confidence, 60), f"Schicht-Begriff '{schicht_muss}' fehlt"
+                else:
+                    # Komplett falscher Typ -> harte Strafe
+                    return min(gpt_confidence, 35), f"Schicht-Begriff '{schicht_muss}' fehlt + falscher Typ"
 
-        # 3. Typ-Check
+        # 4. Typ-Check für Asphalt
         ist_asphalt = any(
             keyword.lower() in combined
             for keyword in ["asphalt", "bitumen", "bituminös"]
@@ -216,6 +201,32 @@ class ConfidenceValidator:
         return gpt_confidence, "Validiert"
 
     @staticmethod
+    def _get_material_type(parsed_material: Dict[str, Any]) -> Optional[str]:
+        """Ermittelt den Material-Typ für Mismatch-Prüfung."""
+        material_orig = parsed_material.get("material_original", "").lower()
+        schicht_orig = parsed_material.get("schicht_name_original", "").lower()
+
+        combined = f"{material_orig} {schicht_orig}"
+
+        if parsed_material.get("ist_asphalt"):
+            return "asphalt"
+
+        if any(kw in combined for kw in ["schotter", "kies", "splitt", "frostschutz"]):
+            return "schotter"
+
+        if any(kw in combined for kw in ["dämm", "xps", "eps", "pur", "pir", "mineralwolle"]):
+            return "daemmung"
+
+        return None
+
+    @staticmethod
+    def _ist_gleicher_material_typ(epd_combined: str, parsed_material: Dict[str, Any]) -> bool:
+        """Prüft ob EPD und Material grundsätzlich gleicher Typ sind."""
+        if parsed_material.get("ist_asphalt"):
+            return any(kw in epd_combined for kw in ["asphalt", "bituminös"])
+        return False
+
+    @staticmethod
     def validate_batch_results(
             matches_per_schicht: List[List[Dict[str, Any]]],
             materials: List[Dict[str, Any]],
@@ -224,15 +235,8 @@ class ConfidenceValidator:
         """
         Validiert alle Batch-Ergebnisse.
 
-        Args:
-            matches_per_schicht: GPT-Matches pro Schicht
-            materials: Original-Materialien
-            epds: EPD-Liste (für Name-Lookup)
-
-        Returns:
-            Korrigierte Matches pro Schicht
+        VERBESSERT: Filtert jetzt Ergebnisse mit Confidence < 25 komplett raus!
         """
-        # EPD-Lookup erstellen
         epd_by_id = {str(e.get("id")): e for e in epds}
 
         validated_results = []
@@ -242,7 +246,6 @@ class ConfidenceValidator:
             material_name = material.get("material_name", "")
             schicht_name = material.get("context", {}).get("NAME", "")
 
-            # Parse Material
             parsed = parse_material_input(material_name, schicht_name)
 
             validated_matches = []
@@ -251,15 +254,17 @@ class ConfidenceValidator:
                 epd = epd_by_id.get(epd_id, {})
                 gpt_confidence = match.get("confidence", 50)
 
-                # Validiere
                 new_confidence, grund = ConfidenceValidator.validate_match(
                     epd, parsed, gpt_confidence
                 )
 
+                # NEU: Matches mit Confidence < 25 komplett rausfiltern!
+                if new_confidence < 25:
+                    continue
+
                 validated_match = match.copy()
                 validated_match["confidence"] = new_confidence
 
-                # Füge Validierungs-Info hinzu wenn geändert
                 if new_confidence != gpt_confidence:
                     original_reason = match.get("begruendung", "")
                     validated_match["begruendung"] = f"{original_reason} [Korrigiert: {grund}]"
@@ -280,40 +285,26 @@ class ConfidenceValidator:
 
 if __name__ == "__main__":
     print("=" * 70)
-    print("EPD-FILTER TEST")
+    print("EPD-FILTER TEST (VERBESSERT)")
     print("=" * 70)
 
-    # Simulierte EPDs
-    test_epds = [
-        {"id": 1, "name": "Asphaltdeckschicht nach TL Asphalt", "klassifizierung": "Straßenbau"},
-        {"id": 2, "name": "Asphaltbinder für Bundesstraßen", "klassifizierung": "Straßenbau"},
-        {"id": 3, "name": "Asphalttragschicht Standard", "klassifizierung": "Straßenbau"},
-        {"id": 4, "name": "Betonpflaster grau", "klassifizierung": "Pflaster"},
-        {"id": 5, "name": "Splittmastixasphalt SMA", "klassifizierung": "Straßenbau"},
-        {"id": 6, "name": "Gussasphalt für Brücken", "klassifizierung": "Brückenbau"},
-        {"id": 7, "name": "Zement CEM I", "klassifizierung": "Bindemittel"},
+    # Test: Mismatch-Erkennung
+    test_cases = [
+        # (EPD-Name, Material, Schicht, Erwartung)
+        ("Bitumenbahnen G 200 S4", "AC 16 D S", "Deckschicht", "sollte niedrig sein"),
+        ("Asphalttragschicht", "AC 16 D S", "Deckschicht", "sollte mittel sein (falsche Schicht)"),
+        ("Asphaltdeckschicht", "AC 16 D S", "Deckschicht", "sollte hoch sein"),
+        ("XPS Dämmstoff", "XPS", "Wärmedämmung", "sollte hoch sein"),
+        ("Bitumen Emulsion", "XPS", "Wärmedämmung", "sollte niedrig sein"),
     ]
 
-    # Simulierte Materialien
-    test_materials = [
-        {
-            "material_name": "Aspahltbeton",  # Tippfehler!
-            "context": {"NAME": "Deckschicht"}
-        },
-        {
-            "material_name": "AC 16 B S",
-            "context": {"NAME": "Binderschicht"}
-        }
-    ]
+    for epd_name, material, schicht, erwartung in test_cases:
+        epd = {"name": epd_name, "klassifizierung": ""}
+        parsed = parse_material_input(material, schicht)
 
-    # Filter testen
-    filter = EPDFilter(max_epds_per_material=50, debug=True)
+        new_conf, grund = ConfidenceValidator.validate_match(epd, parsed, 85)
 
-    print("\nFilterung:")
-    result = filter.filter_for_materials(test_epds, test_materials)
-
-    print("\n" + filter.get_filter_summary(result["stats"]))
-
-    print("\n\nGefilterte EPDs:")
-    for epd in result["combined_epds"]:
-        print(f"  - {epd['id']}: {epd['name']}")
+        print(f"\nEPD: {epd_name}")
+        print(f"Material: {material} / {schicht}")
+        print(f"Confidence: 85 → {new_conf} ({grund})")
+        print(f"Erwartung: {erwartung}")
