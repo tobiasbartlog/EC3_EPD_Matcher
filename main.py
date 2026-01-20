@@ -4,10 +4,13 @@ import sys
 from pathlib import Path
 from typing import Dict, Any, List
 
+# UTF-8 Encoding für Konsolen-Output (wichtig bei Start von C#)
+sys.stdout.reconfigure(encoding="utf-8")
+sys.stderr.reconfigure(encoding="utf-8")
+
 import matching.prompt_builder
 from matching.azure_matcher import AzureEPDMatcher
 from utils.file_handler import load_json, save_json
-
 
 def process_groups_batch(input_data: Dict[str, Any], matcher: AzureEPDMatcher) -> Dict[str, Any]:
     """Verarbeitet alle Gruppen mit Batch-Matching (1x Azure-Call für alle)."""
