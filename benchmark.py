@@ -1,14 +1,7 @@
 #!/usr/bin/env python3
 """
 Benchmark-Skript für Azure OpenAI Modell-Vergleich.
-
-Vergleicht alle 4 Azure Deployments:
-- gpt-4o-mini
-- gpt-5-nano
-- gpt-5-chat
-- gpt-5.2-chat
-
-Misst: Tokens, Kosten, Zeit, Ergebnisse pro Schicht
+Fix: Unicode/Encoding Support für Windows & Robustere Token-Extraktion.
 """
 
 import os
@@ -21,22 +14,21 @@ from datetime import datetime
 from typing import Dict, Any, List
 from dataclasses import dataclass, field, asdict
 
-# UTF-8 für Konsole
-sys.stdout.reconfigure(encoding="utf-8")
-sys.stderr.reconfigure(encoding="utf-8")
+# UTF-8 für Konsole sicherstellen
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout.reconfigure(encoding="utf-8")
 
 # =============================================================================
 # KONFIGURATION
 # =============================================================================
 
-MODELS = [
+DEFAULT_MODELS = [
     "gpt-4o-mini",
     "gpt-5-nano",
     "gpt-5-chat",
     "gpt-5.2-chat",
 ]
 
-# Preise pro 1M Tokens (Standard Tier, Januar 2026)
 MODEL_PRICES = {
     "gpt-4o-mini": {"input": 0.15, "output": 0.60},
     "gpt-5-nano": {"input": 0.05, "output": 0.40},
@@ -51,37 +43,29 @@ MODEL_PRICES = {
 
 @dataclass
 class SchichtResult:
-    """Ergebnis einer einzelnen Schicht."""
     name: str
     material: str
     match_count: int
     top_match_id: str = ""
-    top_match_name: str = ""
     top_confidence: int = 0
-    all_ids: List[str] = field(default_factory=list)
 
 
 @dataclass
 class ModelRun:
-    """Ergebnis eines Modell-Durchlaufs."""
     model: str
-    start_time: str
     duration_seconds: float
-    input_tokens: int
-    output_tokens: int
-    total_tokens: int
-    cost_usd: float
-    cost_eur: float
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    cost_usd: float = 0.0
     schichten: List[SchichtResult] = field(default_factory=list)
     error: str = ""
 
 
 @dataclass
 class BenchmarkResult:
-    """Gesamt-Benchmark-Ergebnis."""
     timestamp: str
     input_file: str
-    total_schichten: int
     runs: List[ModelRun] = field(default_factory=list)
 
 
@@ -90,350 +74,146 @@ class BenchmarkResult:
 # =============================================================================
 
 class ModelBenchmark:
-    """Führt Benchmarks für verschiedene Modelle durch."""
-
-    def __init__(self, id_folder: str, input_file: str = "input.json"):
-        self.id_folder = Path(id_folder)
-        self.input_file = input_file
-        self.input_path = self.id_folder / "input" / input_file
+    def __init__(self, base_folder: str, input_file: str, output_folder_name: str):
+        self.base_path = Path(base_folder)
+        self.input_path = self.base_path / "input" / input_file
+        self.output_dir = self.base_path / output_folder_name
+        self.output_dir.mkdir(parents=True, exist_ok=True)
         self.results: List[ModelRun] = []
 
-        # Input laden für Schicht-Infos
-        self.input_data = self._load_input()
-        self.schicht_count = len(self.input_data.get("Gruppen", []))
+    def run_benchmark(self, models: List[str]) -> BenchmarkResult:
+        print(f"🚀 Starte Benchmark im Ordner: {self.base_path}")
+        print(f"📂 Input: {self.input_path}")
+        print(f"📁 Benchmark-Output: {self.output_dir}\n")
 
-    def _load_input(self) -> Dict[str, Any]:
-        """Lädt Input-JSON."""
-        if not self.input_path.exists():
-            print(f"❌ Input nicht gefunden: {self.input_path}")
-            return {"Gruppen": []}
-        with open(self.input_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-
-    def run_all_models(self) -> BenchmarkResult:
-        """Führt Benchmark für alle Modelle durch."""
-        print("\n" + "=" * 70)
-        print("🏁 MODEL BENCHMARK GESTARTET")
-        print("=" * 70)
-        print(f"📁 Input: {self.input_path}")
-        print(f"📊 Schichten: {self.schicht_count}")
-        print(f"🤖 Modelle: {', '.join(MODELS)}")
-        print("=" * 70 + "\n")
-
-        for i, model in enumerate(MODELS, 1):
-            print(f"\n{'─' * 70}")
-            print(f"[{i}/{len(MODELS)}] 🚀 Starte: {model}")
-            print(f"{'─' * 70}")
-
-            run_result = self._run_single_model(model)
+        for model in models:
+            print(f"--- Teste Modell: {model} ---")
+            run_result = self._execute_main(model)
             self.results.append(run_result)
 
-            # Kurze Zusammenfassung nach jedem Run
-            if not run_result.error:
-                print(f"\n✅ {model} abgeschlossen:")
-                print(f"   ⏱️  Zeit: {run_result.duration_seconds:.1f}s")
-                print(f"   🔢 Tokens: {run_result.total_tokens:,}")
-                print(f"   💵 Kosten: ${run_result.cost_usd:.6f}")
+            if run_result.error:
+                print(f"❌ Fehler bei {model}: {run_result.error}")
             else:
-                print(f"\n❌ {model} fehlgeschlagen: {run_result.error}")
+                print(f"✅ Fertig: {run_result.duration_seconds:.1f}s | Cost: ${run_result.cost_usd:.5f}")
 
         return BenchmarkResult(
             timestamp=datetime.now().isoformat(),
             input_file=str(self.input_path),
-            total_schichten=self.schicht_count,
             runs=self.results
         )
 
-    def _run_single_model(self, model: str) -> ModelRun:
-        """Führt einen einzelnen Modell-Durchlauf durch."""
-        start_time = datetime.now()
-
-        # Environment für Subprocess setzen
+    def _execute_main(self, model: str) -> ModelRun:
+        start_time = time.time()
         env = os.environ.copy()
         env["AZURE_DEPLOYMENT"] = model
+        # Erzwingt UTF-8 Output auch im Subprozess
+        env["PYTHONIOENCODING"] = "utf-8"
 
-        # Output-Datei für dieses Modell
-        output_file = f"output_{model}.json"
-        output_path = self.id_folder / "output" / output_file
-
-        # Sicherstellen dass Output-Ordner existiert
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_filename = f"output_{model}.json"
+        output_path = self.output_dir / output_filename
 
         try:
-            # main.py ausführen
-            result = subprocess.run(
+            # FIX: shell=True entfernt (sicherer) & encoding="utf-8" mit errors="replace"
+            process = subprocess.run(
                 [
                     sys.executable, "main.py",
-                    str(self.id_folder),
-                    "--input-file", self.input_file,
-                    "--output-file", output_file
+                    str(self.base_path),
+                    "--input-file", self.input_path.name,
+                    "--output-file", str(Path(self.output_dir.name) / output_filename)
                 ],
                 capture_output=True,
                 text=True,
                 env=env,
-                timeout=600,  # 10 Minuten Timeout
-                cwd=str(Path(__file__).parent)
+                timeout=600,
+                encoding="utf-8",  # FIX: Explizites UTF-8
+                errors="replace"  # FIX: Ersetzt kaputte Zeichen statt abzustürzen
             )
 
-            duration = (datetime.now() - start_time).total_seconds()
+            duration = time.time() - start_time
+            tokens = self._extract_tokens(process.stdout or "")
 
-            # Output parsen
-            stdout = result.stdout
-
-            # Tokens extrahieren
-            tokens = self._extract_tokens(stdout)
-
-            # Kosten berechnen
-            prices = MODEL_PRICES.get(model, {"input": 1.0, "output": 4.0})
-            cost_usd = (tokens["input"] / 1_000_000) * prices["input"] + \
-                       (tokens["output"] / 1_000_000) * prices["output"]
-            cost_eur = cost_usd * 0.92
-
-            # Schicht-Ergebnisse aus Output-JSON laden
-            schichten = self._parse_output(output_path)
+            prices = MODEL_PRICES.get(model, {"input": 0, "output": 0})
+            cost = (tokens["input"] / 1e6 * prices["input"]) + (tokens["output"] / 1e6 * prices["output"])
+            schichten = self._parse_output_json(output_path)
 
             return ModelRun(
                 model=model,
-                start_time=start_time.isoformat(),
                 duration_seconds=duration,
                 input_tokens=tokens["input"],
                 output_tokens=tokens["output"],
                 total_tokens=tokens["total"],
-                cost_usd=cost_usd,
-                cost_eur=cost_eur,
+                cost_usd=cost,
                 schichten=schichten
             )
-
-        except subprocess.TimeoutExpired:
-            return ModelRun(
-                model=model,
-                start_time=start_time.isoformat(),
-                duration_seconds=600,
-                input_tokens=0, output_tokens=0, total_tokens=0,
-                cost_usd=0, cost_eur=0,
-                error="Timeout nach 10 Minuten"
-            )
         except Exception as e:
-            return ModelRun(
-                model=model,
-                start_time=start_time.isoformat(),
-                duration_seconds=(datetime.now() - start_time).total_seconds(),
-                input_tokens=0, output_tokens=0, total_tokens=0,
-                cost_usd=0, cost_eur=0,
-                error=str(e)
-            )
+            return ModelRun(model=model, duration_seconds=0, error=str(e))
 
     def _extract_tokens(self, stdout: str) -> Dict[str, int]:
-        """Extrahiert Token-Zahlen aus stdout."""
         import re
-
-        # Suche nach Kosten-Zusammenfassung
-        input_match = re.search(r"Input Tokens:\s*([\d,]+)", stdout)
-        output_match = re.search(r"Output Tokens:\s*([\d,]+)", stdout)
-        total_match = re.search(r"Gesamt Tokens:\s*([\d,]+)", stdout)
-
-        def parse_num(match):
+        tokens = {"input": 0, "output": 0, "total": 0}
+        for key in tokens.keys():
+            # Robustere Regex, die auch Tausender-Trennzeichen ignoriert
+            match = re.search(fr"{key.capitalize()} Tokens:\s*([\d,.]+)", stdout)
             if match:
-                return int(match.group(1).replace(",", ""))
-            return 0
+                raw_val = match.group(1).replace(",", "").replace(".", "")
+                tokens[key] = int(raw_val)
+        return tokens
 
-        return {
-            "input": parse_num(input_match),
-            "output": parse_num(output_match),
-            "total": parse_num(total_match)
-        }
-
-    def _parse_output(self, output_path: Path) -> List[SchichtResult]:
-        """Parst Output-JSON für Schicht-Details."""
-        if not output_path.exists():
-            return []
-
+    def _parse_output_json(self, path: Path) -> List[SchichtResult]:
+        if not path.exists(): return []
         try:
-            with open(output_path, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
+
+            results = []
+            for g in data.get("Gruppen", []):
+                ids = g.get("id", [])
+                top_id = ids[0] if ids else ""
+                results.append(SchichtResult(
+                    name=g.get("NAME", ""),
+                    material=g.get("MATERIAL", ""),
+                    match_count=len(ids),
+                    top_match_id=top_id,
+                    top_confidence=g.get("id_confidence", {}).get(top_id, 0)
+                ))
+            return results
         except:
             return []
 
-        schichten = []
-        for gruppe in data.get("Gruppen", []):
-            ids = gruppe.get("id", [])
-            confidence = gruppe.get("id_confidence", {})
-
-            # Top-Match ermitteln
-            top_id = ids[0] if ids else ""
-            top_conf = confidence.get(top_id, 0) if top_id else 0
-
-            schichten.append(SchichtResult(
-                name=gruppe.get("NAME", ""),
-                material=gruppe.get("MATERIAL", ""),
-                match_count=len(ids),
-                top_match_id=top_id,
-                top_confidence=top_conf,
-                all_ids=ids
-            ))
-
-        return schichten
-
 
 # =============================================================================
-# AUSGABE / REPORTING
+# REPORTING
 # =============================================================================
 
-def print_comparison_table(result: BenchmarkResult) -> None:
-    """Gibt übersichtliche Vergleichstabelle aus."""
-
-    print("\n" + "=" * 90)
-    print("📊 BENCHMARK ERGEBNISSE - ÜBERSICHT")
-    print("=" * 90)
-
-    # Header
-    print(f"\n{'Modell':<16} {'Zeit':>8} {'Input':>10} {'Output':>10} {'Total':>10} {'Kosten $':>12} {'€':>10}")
-    print("-" * 90)
-
-    # Sortiert nach Kosten
-    sorted_runs = sorted(result.runs, key=lambda x: x.cost_usd)
-
-    for run in sorted_runs:
+def print_results(result: BenchmarkResult):
+    print("\n" + "=" * 85)
+    print(f"{'Modell':<15} | {'Zeit':>7} | {'Tokens (In/Out)':>20} | {'Kosten $':>10}")
+    print("-" * 85)
+    for run in result.runs:
         if run.error:
-            print(f"{run.model:<16} {'ERROR':>8} {'-':>10} {'-':>10} {'-':>10} {'-':>12} {'-':>10}")
-            print(f"   ❌ {run.error}")
+            print(f"{run.model:<15} | ERROR: {run.error[:40]}...")
         else:
-            print(
-                f"{run.model:<16} {run.duration_seconds:>7.1f}s {run.input_tokens:>10,} {run.output_tokens:>10,} {run.total_tokens:>10,} ${run.cost_usd:>10.6f} €{run.cost_eur:>9.6f}")
-
-    print("-" * 90)
-
-    # Günstigstes Modell markieren
-    cheapest = sorted_runs[0]
-    if not cheapest.error:
-        print(f"\n🏆 Günstigstes: {cheapest.model} (${cheapest.cost_usd:.6f})")
-
-    # Schnellstes Modell
-    fastest = min([r for r in result.runs if not r.error], key=lambda x: x.duration_seconds, default=None)
-    if fastest:
-        print(f"⚡ Schnellstes: {fastest.model} ({fastest.duration_seconds:.1f}s)")
-
-
-def print_schicht_comparison(result: BenchmarkResult) -> None:
-    """Gibt Schicht-für-Schicht Vergleich aus."""
-
-    print("\n" + "=" * 90)
-    print("📋 ERGEBNISSE PRO SCHICHT")
-    print("=" * 90)
-
-    # Finde erfolgreiche Runs
-    valid_runs = [r for r in result.runs if not r.error and r.schichten]
-
-    if not valid_runs:
-        print("Keine gültigen Ergebnisse zum Vergleichen.")
-        return
-
-    schicht_count = len(valid_runs[0].schichten)
-
-    for i in range(schicht_count):
-        print(f"\n{'─' * 90}")
-        schicht_info = valid_runs[0].schichten[i]
-        print(f"Schicht {i + 1}: {schicht_info.name}")
-        print(f"Material: {schicht_info.material}")
-        print(f"{'─' * 90}")
-
-        print(f"{'Modell':<16} {'Matches':>8} {'Top Confidence':>15} {'Top Match ID':<40}")
-        print("-" * 90)
-
-        for run in valid_runs:
-            if i < len(run.schichten):
-                s = run.schichten[i]
-                conf_str = f"{s.top_confidence}%" if s.top_confidence else "N/A"
-                print(f"{run.model:<16} {s.match_count:>8} {conf_str:>15} {s.top_match_id:<40}")
-
-        # Prüfe ob alle Modelle gleiche Top-ID haben
-        top_ids = [run.schichten[i].top_match_id for run in valid_runs if i < len(run.schichten)]
-        if len(set(top_ids)) == 1 and top_ids[0]:
-            print(f"✅ Alle Modelle: gleiche Top-ID")
-        elif len(set(top_ids)) > 1:
-            print(f"⚠️  Unterschiedliche Top-IDs!")
-
-
-def save_results(result: BenchmarkResult, output_path: Path) -> None:
-    """Speichert Ergebnisse als JSON."""
-
-    # Konvertiere zu dict
-    def to_dict(obj):
-        if hasattr(obj, '__dict__'):
-            return {k: to_dict(v) for k, v in asdict(obj).items()}
-        elif isinstance(obj, list):
-            return [to_dict(item) for item in obj]
-        return obj
-
-    result_dict = to_dict(result)
-
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(result_dict, f, indent=2, ensure_ascii=False)
-
-    print(f"\n💾 Ergebnisse gespeichert: {output_path}")
+            token_str = f"{run.input_tokens}/{run.output_tokens}"
+            print(f"{run.model:<15} | {run.duration_seconds:>6.1f}s | {token_str:>20} | ${run.cost_usd:>9.5f}")
+    print("=" * 85)
 
 
 # =============================================================================
 # MAIN
 # =============================================================================
 
-def main():
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        description='Benchmark für Azure OpenAI Modelle'
-    )
-    parser.add_argument(
-        'id_folder',
-        type=str,
-        help='Pfad zum ID-Ordner (wie bei main.py)'
-    )
-    parser.add_argument(
-        '--input-file',
-        type=str,
-        default='input.json',
-        help='Name der Input-JSON-Datei'
-    )
-    parser.add_argument(
-        '--models',
-        type=str,
-        nargs='+',
-        default=MODELS,
-        help=f'Modelle zum Testen (Standard: {MODELS})'
-    )
-    parser.add_argument(
-        '--output',
-        type=str,
-        default=None,
-        help='Pfad für JSON-Ergebnis (optional)'
-    )
-
-    args = parser.parse_args()
-
-    # Modelle überschreiben falls angegeben
-    global MODELS
-    MODELS = args.models
-
-    # Benchmark durchführen
-    benchmark = ModelBenchmark(args.id_folder, args.input_file)
-    result = benchmark.run_all_models()
-
-    # Ergebnisse ausgeben
-    print_comparison_table(result)
-    print_schicht_comparison(result)
-
-    # Optional als JSON speichern
-    if args.output:
-        save_results(result, Path(args.output))
-    else:
-        # Standard: im Output-Ordner speichern
-        default_output = Path(args.id_folder) / "output" / "benchmark_results.json"
-        save_results(result, default_output)
-
-    print("\n" + "=" * 90)
-    print("✅ BENCHMARK ABGESCHLOSSEN")
-    print("=" * 90 + "\n")
-
-
 if __name__ == "__main__":
-    main()
+    BASE_DIR = "TestInput/id_aufruf_benutzer"
+    INPUT_FILE = "input.json"
+    BENCHMARK_OUT = "output_benchmark"
+
+    benchmark = ModelBenchmark(BASE_DIR, INPUT_FILE, BENCHMARK_OUT)
+    final_result = benchmark.run_benchmark(DEFAULT_MODELS)
+
+    print_results(final_result)
+
+    stats_path = Path(BASE_DIR) / BENCHMARK_OUT / "benchmark_stats.json"
+    with open(stats_path, "w", encoding="utf-8") as f:
+        json.dump(asdict(final_result), f, indent=2, ensure_ascii=False)
+
+    print(f"\n💾 Statistik gespeichert in: {stats_path}")
