@@ -287,7 +287,4 @@ def main():
 
 
 if __name__ == "__main__":
-    import sys
-    # Füge den Pfad als Kommandozeilen-Argument hinzu
-    sys.argv = ["main.py", "TestInput/id_aufruf_benutzer"]
     main()
