@@ -1,0 +1,1100 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EPD Matcher - Benchmark Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-card: #334155;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --accent-blue: #3b82f6;
+            --accent-green: #22c55e;
+            --accent-yellow: #eab308;
+            --accent-red: #ef4444;
+            --accent-purple: #a855f7;
+            --border-color: #475569;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, var(--bg-secondary), var(--bg-card));
+            border-radius: 16px;
+            padding: 24px 32px;
+            margin-bottom: 24px;
+            border: 1px solid var(--border-color);
+        }
+
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .header-meta {
+            display: flex;
+            gap: 24px;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .header-meta span {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        /* File Upload */
+        .upload-section {
+            background: var(--bg-secondary);
+            border: 2px dashed var(--border-color);
+            border-radius: 12px;
+            padding: 40px;
+            text-align: center;
+            margin-bottom: 24px;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+
+        .upload-section:hover {
+            border-color: var(--accent-blue);
+            background: var(--bg-card);
+        }
+
+        .upload-section.dragover {
+            border-color: var(--accent-green);
+            background: rgba(34, 197, 94, 0.1);
+        }
+
+        .upload-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        .upload-section input[type="file"] {
+            display: none;
+        }
+
+        /* Grid Layout */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        /* KPI Cards */
+        .kpi-card {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid var(--border-color);
+        }
+
+        .kpi-card .label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .kpi-card .value {
+            font-size: 28px;
+            font-weight: 700;
+        }
+
+        .kpi-card .subvalue {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        .kpi-card.highlight {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(168, 85, 247, 0.2));
+            border-color: var(--accent-blue);
+        }
+
+        /* Charts Section */
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        .chart-card {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid var(--border-color);
+        }
+
+        .chart-card h3 {
+            font-size: 16px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+        }
+
+        /* Table Styles */
+        .table-card {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid var(--border-color);
+            margin-bottom: 24px;
+            overflow-x: auto;
+        }
+
+        .table-card h3 {
+            font-size: 16px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        th, td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            background: var(--bg-card);
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.5px;
+        }
+
+        tr:hover {
+            background: var(--bg-card);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .badge-green { background: rgba(34, 197, 94, 0.2); color: var(--accent-green); }
+        .badge-yellow { background: rgba(234, 179, 8, 0.2); color: var(--accent-yellow); }
+        .badge-red { background: rgba(239, 68, 68, 0.2); color: var(--accent-red); }
+        .badge-blue { background: rgba(59, 130, 246, 0.2); color: var(--accent-blue); }
+
+        /* Schicht Cards */
+        .schicht-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        .schicht-card {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            overflow: hidden;
+        }
+
+        .schicht-header {
+            background: var(--bg-card);
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .schicht-header h4 {
+            font-size: 15px;
+            margin-bottom: 4px;
+        }
+
+        .schicht-header .material {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .schicht-content {
+            padding: 16px 20px;
+        }
+
+        .match-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .match-row:last-child {
+            border-bottom: none;
+        }
+
+        .match-model {
+            font-weight: 600;
+            min-width: 120px;
+        }
+
+        .match-details {
+            flex: 1;
+            margin-left: 16px;
+        }
+
+        .match-name {
+            font-size: 13px;
+            color: var(--text-primary);
+        }
+
+        .match-id {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        .match-confidence {
+            font-weight: 700;
+            min-width: 50px;
+            text-align: right;
+        }
+
+        /* Consistency Indicator */
+        .consistency-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-top: 12px;
+        }
+
+        .consistency-badge.consistent {
+            background: rgba(34, 197, 94, 0.2);
+            color: var(--accent-green);
+        }
+
+        .consistency-badge.inconsistent {
+            background: rgba(234, 179, 8, 0.2);
+            color: var(--accent-yellow);
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+
+        .tab {
+            padding: 10px 20px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .tab:hover {
+            background: var(--bg-card);
+        }
+
+        .tab.active {
+            background: var(--accent-blue);
+            border-color: var(--accent-blue);
+        }
+
+        /* Recommendation */
+        .recommendation-card {
+            background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(59, 130, 246, 0.1));
+            border: 1px solid var(--accent-green);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+
+        .recommendation-card h3 {
+            color: var(--accent-green);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .recommendation-content {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 24px;
+            align-items: center;
+        }
+
+        .winner-badge {
+            background: var(--accent-green);
+            color: var(--bg-primary);
+            padding: 16px 24px;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .winner-badge .model {
+            font-size: 24px;
+            font-weight: 700;
+        }
+
+        .winner-badge .label {
+            font-size: 12px;
+            opacity: 0.8;
+        }
+
+        .winner-stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+        }
+
+        .winner-stat {
+            text-align: center;
+        }
+
+        .winner-stat .value {
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        .winner-stat .label {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        /* Hidden */
+        .hidden {
+            display: none !important;
+        }
+
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .dashboard-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .charts-grid, .schicht-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+            .header-meta {
+                flex-direction: column;
+                gap: 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🚀 EPD Matcher - Benchmark Dashboard</h1>
+            <div class="header-meta" id="headerMeta">
+                <span>📅 Lade Daten...</span>
+            </div>
+        </div>
+
+        <!-- Upload Section -->
+        <div class="upload-section" id="uploadSection">
+            <div class="upload-icon">📊</div>
+            <h3>benchmark_results.json hierher ziehen</h3>
+            <p style="color: var(--text-secondary); margin-top: 8px;">oder klicken zum Auswählen</p>
+            <input type="file" id="fileInput" accept=".json">
+        </div>
+
+        <!-- Dashboard Content (hidden until data loaded) -->
+        <div id="dashboardContent" class="hidden">
+            <!-- KPI Cards -->
+            <div class="dashboard-grid" id="kpiGrid">
+                <!-- Dynamically filled -->
+            </div>
+
+            <!-- Recommendation -->
+            <div class="recommendation-card" id="recommendationCard">
+                <!-- Dynamically filled -->
+            </div>
+
+            <!-- Tabs -->
+            <div class="tabs">
+                <div class="tab active" data-tab="overview">📊 Übersicht</div>
+                <div class="tab" data-tab="schichten">📋 Schichten</div>
+                <div class="tab" data-tab="details">🔍 Details</div>
+                <div class="tab" data-tab="projection">📈 Hochrechnung</div>
+            </div>
+
+            <!-- Tab Content: Overview -->
+            <div id="tab-overview" class="tab-content">
+                <div class="charts-grid">
+                    <div class="chart-card">
+                        <h3>💰 Kosten-Vergleich</h3>
+                        <div class="chart-container">
+                            <canvas id="costChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-card">
+                        <h3>⚡ Zeit-Vergleich</h3>
+                        <div class="chart-container">
+                            <canvas id="timeChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-card">
+                        <h3>🎯 Qualität (Ø Confidence)</h3>
+                        <div class="chart-container">
+                            <canvas id="qualityChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-card">
+                        <h3>🔢 Token-Verbrauch</h3>
+                        <div class="chart-container">
+                            <canvas id="tokenChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Model Comparison Table -->
+                <div class="table-card">
+                    <h3>📋 Modell-Vergleich</h3>
+                    <table id="comparisonTable">
+                        <thead>
+                            <tr>
+                                <th>Modell</th>
+                                <th>Zeit</th>
+                                <th>Input Tokens</th>
+                                <th>Output Tokens</th>
+                                <th>Kosten ($)</th>
+                                <th>Ø Confidence</th>
+                                <th>Bewertung</th>
+                            </tr>
+                        </thead>
+                        <tbody id="comparisonBody">
+                            <!-- Dynamically filled -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Tab Content: Schichten -->
+            <div id="tab-schichten" class="tab-content hidden">
+                <div class="schicht-grid" id="schichtGrid">
+                    <!-- Dynamically filled -->
+                </div>
+            </div>
+
+            <!-- Tab Content: Details -->
+            <div id="tab-details" class="tab-content hidden">
+                <div class="table-card">
+                    <h3>🔍 Alle Matches pro Schicht</h3>
+                    <div id="detailsContent">
+                        <!-- Dynamically filled -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Content: Projection -->
+            <div id="tab-projection" class="tab-content hidden">
+                <div class="chart-card" style="margin-bottom: 24px;">
+                    <h3>📈 Kosten-Hochrechnung</h3>
+                    <div class="chart-container" style="height: 400px;">
+                        <canvas id="projectionChart"></canvas>
+                    </div>
+                </div>
+                <div class="table-card">
+                    <h3>💵 Kosten-Tabelle</h3>
+                    <table id="projectionTable">
+                        <thead>
+                            <tr>
+                                <th>Modell</th>
+                                <th>1 Request</th>
+                                <th>10 Requests</th>
+                                <th>100 Requests</th>
+                                <th>1.000 Requests</th>
+                                <th>10.000 Requests</th>
+                            </tr>
+                        </thead>
+                        <tbody id="projectionBody">
+                            <!-- Dynamically filled -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global state
+        let benchmarkData = null;
+        let charts = {};
+
+        // Colors for models
+        const modelColors = {
+            'gpt-4o-mini': '#22c55e',
+            'gpt-5-nano': '#3b82f6',
+            'gpt-5-chat': '#a855f7',
+            'gpt-5.2-chat': '#f59e0b'
+        };
+
+        const getModelColor = (model) => modelColors[model] || '#6b7280';
+
+        // File Upload Handling
+        const uploadSection = document.getElementById('uploadSection');
+        const fileInput = document.getElementById('fileInput');
+
+        uploadSection.addEventListener('click', () => fileInput.click());
+
+        uploadSection.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadSection.classList.add('dragover');
+        });
+
+        uploadSection.addEventListener('dragleave', () => {
+            uploadSection.classList.remove('dragover');
+        });
+
+        uploadSection.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadSection.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            if (file) loadFile(file);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) loadFile(file);
+        });
+
+        function loadFile(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    benchmarkData = JSON.parse(e.target.result);
+                    renderDashboard();
+                } catch (err) {
+                    alert('Fehler beim Laden der JSON-Datei: ' + err.message);
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        // Tab Navigation
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+
+                tab.classList.add('active');
+                document.getElementById(`tab-${tab.dataset.tab}`).classList.remove('hidden');
+            });
+        });
+
+        // Render Dashboard
+        function renderDashboard() {
+            if (!benchmarkData) return;
+
+            uploadSection.classList.add('hidden');
+            document.getElementById('dashboardContent').classList.remove('hidden');
+
+            // Update header
+            const meta = document.getElementById('headerMeta');
+            meta.innerHTML = `
+                <span>📅 ${new Date(benchmarkData.timestamp).toLocaleString('de-DE')}</span>
+                <span>📋 ${benchmarkData.total_schichten} Schichten</span>
+                <span>🤖 ${benchmarkData.runs.length} Modelle</span>
+                <span>📄 ${benchmarkData.input_file.split(/[/\\]/).pop()}</span>
+            `;
+
+            renderKPIs();
+            renderRecommendation();
+            renderCharts();
+            renderComparisonTable();
+            renderSchichten();
+            renderDetails();
+            renderProjection();
+        }
+
+        function renderKPIs() {
+            const runs = benchmarkData.runs.filter(r => !r.error);
+            const sortedByCost = [...runs].sort((a, b) => a.cost_usd - b.cost_usd);
+            const sortedByTime = [...runs].sort((a, b) => a.duration_seconds - b.duration_seconds);
+
+            const cheapest = sortedByCost[0];
+            const fastest = sortedByTime[0];
+
+            // Calculate average confidence per model
+            const avgConfidences = runs.map(r => {
+                const confs = r.schichten.map(s => s.top_confidence).filter(c => c > 0);
+                return confs.length ? confs.reduce((a, b) => a + b, 0) / confs.length : 0;
+            });
+            const bestQualityIdx = avgConfidences.indexOf(Math.max(...avgConfidences));
+            const bestQuality = runs[bestQualityIdx];
+
+            const kpiGrid = document.getElementById('kpiGrid');
+            kpiGrid.innerHTML = `
+                <div class="kpi-card highlight">
+                    <div class="label">🏆 Günstigstes Modell</div>
+                    <div class="value">${cheapest.model}</div>
+                    <div class="subvalue">$${cheapest.cost_usd.toFixed(6)}</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">⚡ Schnellstes Modell</div>
+                    <div class="value">${fastest.model}</div>
+                    <div class="subvalue">${fastest.duration_seconds.toFixed(1)}s</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">🎯 Beste Qualität</div>
+                    <div class="value">${bestQuality.model}</div>
+                    <div class="subvalue">Ø ${avgConfidences[bestQualityIdx].toFixed(1)}% Confidence</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">💰 Max. Ersparnis</div>
+                    <div class="value">${((1 - cheapest.cost_usd / sortedByCost[sortedByCost.length-1].cost_usd) * 100).toFixed(0)}%</div>
+                    <div class="subvalue">vs. ${sortedByCost[sortedByCost.length-1].model}</div>
+                </div>
+            `;
+        }
+
+        function renderRecommendation() {
+            const runs = benchmarkData.runs.filter(r => !r.error);
+
+            // Calculate scores
+            const scores = runs.map(run => {
+                const allCosts = runs.map(r => r.cost_usd);
+                const allTimes = runs.map(r => r.duration_seconds);
+                const confs = run.schichten.map(s => s.top_confidence).filter(c => c > 0);
+                const avgConf = confs.length ? confs.reduce((a, b) => a + b, 0) / confs.length : 0;
+
+                const costRank = [...allCosts].sort((a, b) => a - b).indexOf(run.cost_usd) + 1;
+                const timeRank = [...allTimes].sort((a, b) => a - b).indexOf(run.duration_seconds) + 1;
+
+                const costScore = (runs.length - costRank + 1) / runs.length * 30;
+                const timeScore = (runs.length - timeRank + 1) / runs.length * 20;
+                const qualityScore = avgConf / 100 * 50;
+
+                return {
+                    model: run.model,
+                    total: costScore + timeScore + qualityScore,
+                    cost: run.cost_usd,
+                    time: run.duration_seconds,
+                    avgConf,
+                    tokens: run.total_tokens
+                };
+            });
+
+            const winner = scores.sort((a, b) => b.total - a.total)[0];
+
+            const card = document.getElementById('recommendationCard');
+            card.innerHTML = `
+                <h3>💡 Empfehlung</h3>
+                <div class="recommendation-content">
+                    <div class="winner-badge">
+                        <div class="label">BESTES MODELL</div>
+                        <div class="model">${winner.model}</div>
+                    </div>
+                    <div class="winner-stats">
+                        <div class="winner-stat">
+                            <div class="value">$${winner.cost.toFixed(6)}</div>
+                            <div class="label">Kosten</div>
+                        </div>
+                        <div class="winner-stat">
+                            <div class="value">${winner.time.toFixed(1)}s</div>
+                            <div class="label">Zeit</div>
+                        </div>
+                        <div class="winner-stat">
+                            <div class="value">${winner.avgConf.toFixed(0)}%</div>
+                            <div class="label">Ø Confidence</div>
+                        </div>
+                        <div class="winner-stat">
+                            <div class="value">${winner.total.toFixed(0)}</div>
+                            <div class="label">Score (max 100)</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderCharts() {
+            const runs = benchmarkData.runs.filter(r => !r.error);
+            const labels = runs.map(r => r.model);
+            const colors = runs.map(r => getModelColor(r.model));
+
+            // Destroy existing charts
+            Object.values(charts).forEach(chart => chart.destroy());
+
+            // Cost Chart
+            charts.cost = new Chart(document.getElementById('costChart'), {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Kosten ($)',
+                        data: runs.map(r => r.cost_usd),
+                        backgroundColor: colors,
+                        borderRadius: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: '#334155' },
+                            ticks: { color: '#94a3b8' }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#94a3b8' }
+                        }
+                    }
+                }
+            });
+
+            // Time Chart
+            charts.time = new Chart(document.getElementById('timeChart'), {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Zeit (s)',
+                        data: runs.map(r => r.duration_seconds),
+                        backgroundColor: colors,
+                        borderRadius: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: '#334155' }, ticks: { color: '#94a3b8' } },
+                        x: { grid: { display: false }, ticks: { color: '#94a3b8' } }
+                    }
+                }
+            });
+
+            // Quality Chart
+            const avgConfs = runs.map(r => {
+                const confs = r.schichten.map(s => s.top_confidence).filter(c => c > 0);
+                return confs.length ? confs.reduce((a, b) => a + b, 0) / confs.length : 0;
+            });
+
+            charts.quality = new Chart(document.getElementById('qualityChart'), {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Ø Confidence (%)',
+                        data: avgConfs,
+                        backgroundColor: colors,
+                        borderRadius: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, max: 100, grid: { color: '#334155' }, ticks: { color: '#94a3b8' } },
+                        x: { grid: { display: false }, ticks: { color: '#94a3b8' } }
+                    }
+                }
+            });
+
+            // Token Chart (Stacked)
+            charts.token = new Chart(document.getElementById('tokenChart'), {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [
+                        {
+                            label: 'Input Tokens',
+                            data: runs.map(r => r.input_tokens),
+                            backgroundColor: 'rgba(59, 130, 246, 0.8)',
+                            borderRadius: 4
+                        },
+                        {
+                            label: 'Output Tokens',
+                            data: runs.map(r => r.output_tokens),
+                            backgroundColor: 'rgba(168, 85, 247, 0.8)',
+                            borderRadius: 4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { labels: { color: '#94a3b8' } }
+                    },
+                    scales: {
+                        y: { stacked: true, grid: { color: '#334155' }, ticks: { color: '#94a3b8' } },
+                        x: { stacked: true, grid: { display: false }, ticks: { color: '#94a3b8' } }
+                    }
+                }
+            });
+        }
+
+        function renderComparisonTable() {
+            const runs = benchmarkData.runs.filter(r => !r.error);
+            const tbody = document.getElementById('comparisonBody');
+
+            const sortedRuns = [...runs].sort((a, b) => a.cost_usd - b.cost_usd);
+
+            tbody.innerHTML = sortedRuns.map((run, idx) => {
+                const confs = run.schichten.map(s => s.top_confidence).filter(c => c > 0);
+                const avgConf = confs.length ? confs.reduce((a, b) => a + b, 0) / confs.length : 0;
+
+                let badge = '';
+                if (idx === 0) badge = '<span class="badge badge-green">🏆 Günstigste</span>';
+                else if (idx === sortedRuns.length - 1) badge = '<span class="badge badge-red">💸 Teuerste</span>';
+
+                return `
+                    <tr>
+                        <td><strong style="color: ${getModelColor(run.model)}">${run.model}</strong></td>
+                        <td>${run.duration_seconds.toFixed(1)}s</td>
+                        <td>${run.input_tokens.toLocaleString()}</td>
+                        <td>${run.output_tokens.toLocaleString()}</td>
+                        <td>$${run.cost_usd.toFixed(6)}</td>
+                        <td>${avgConf.toFixed(1)}%</td>
+                        <td>${badge}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function renderSchichten() {
+            const runs = benchmarkData.runs.filter(r => !r.error && r.schichten.length);
+            const schichtCount = runs[0]?.schichten.length || 0;
+            const grid = document.getElementById('schichtGrid');
+
+            let html = '';
+            for (let i = 0; i < schichtCount; i++) {
+                const schicht = runs[0].schichten[i];
+
+                // Check consistency
+                const topIds = runs.map(r => r.schichten[i]?.top_match_id).filter(Boolean);
+                const uniqueIds = [...new Set(topIds)];
+                const isConsistent = uniqueIds.length === 1;
+
+                html += `
+                    <div class="schicht-card">
+                        <div class="schicht-header">
+                            <h4>Schicht ${i + 1}: ${schicht.name}</h4>
+                            <div class="material">${schicht.material}</div>
+                        </div>
+                        <div class="schicht-content">
+                            ${runs.map(run => {
+                                const s = run.schichten[i];
+                                const confClass = s.top_confidence >= 80 ? 'badge-green' :
+                                                  s.top_confidence >= 50 ? 'badge-yellow' : 'badge-red';
+                                return `
+                                    <div class="match-row">
+                                        <div class="match-model" style="color: ${getModelColor(run.model)}">${run.model}</div>
+                                        <div class="match-details">
+                                            <div class="match-name">${s.top_match_name || '(kein Name)'}</div>
+                                            <div class="match-id">ID: ${s.top_match_id} • ${s.match_count} Matches</div>
+                                        </div>
+                                        <div class="match-confidence">
+                                            <span class="badge ${confClass}">${s.top_confidence}%</span>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                            <div class="consistency-badge ${isConsistent ? 'consistent' : 'inconsistent'}">
+                                ${isConsistent ? '✅ Alle Modelle einig' : `⚠️ ${uniqueIds.length} verschiedene Top-IDs`}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            grid.innerHTML = html;
+        }
+
+
+
+        function renderDetails() {
+            const runs = benchmarkData.runs.filter(r => !r.error && r.schichten.length);
+            const schichtCount = runs[0]?.schichten.length || 0;
+            const container = document.getElementById('detailsContent');
+
+            let html = '';
+            for (let i = 0; i < schichtCount; i++) {
+                const schicht = runs[0].schichten[i];
+
+                html += `
+                    <div style="margin-bottom: 32px;">
+                        <h4 style="margin-bottom: 16px; padding: 12px; background: var(--bg-card); border-radius: 8px;">
+                            Schicht ${i + 1}: ${schicht.name} <span style="color: var(--text-secondary); font-weight: normal;">— ${schicht.material}</span>
+                        </h4>
+                        <div style="display: grid; grid-template-columns: repeat(${Math.min(runs.length, 2)}, 1fr); gap: 16px;">
+                            ${runs.map(run => {
+                                const s = run.schichten[i];
+                                const conf = s?.top_confidence ?? 0;
+                                const confClass = conf >= 80 ? 'badge-green' : conf >= 50 ? 'badge-yellow' : 'badge-red';
+
+                                return `
+                                    <div style="background: var(--bg-card); border-radius: 8px; padding: 16px;">
+                                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px;">
+                                            <h5 style="color: ${getModelColor(run.model)}; margin: 0;">${run.model}</h5>
+                                            <span class="badge ${confClass}">${conf}%</span>
+                                        </div>
+
+                                        <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 10px;">
+                                            Top-ID: <strong style="color: var(--text-primary);">${s.top_match_id ?? '-'}</strong>
+                                            • Matches: <strong style="color: var(--text-primary);">${s.match_count ?? 0}</strong>
+                                        </div>
+
+                                        <table style="width: 100%; font-size: 12px;">
+                                            <tr style="background: transparent;">
+                                                <th style="width: 30px;">#</th>
+                                                <th style="width: 50px;">ID</th>
+                                                <th>EPD-Name</th>
+                                                <th style="width: 60px; text-align: right;">Conf.</th>
+                                            </tr>
+                                            ${(s.all_ids || []).slice(0, 5).map((id, idx) => {
+                                                // Confidence für jeden einzelnen Match ermitteln
+                                                const matchConf = s.all_confidences?.[idx] ?? (idx === 0 ? conf : '-');
+                                                const matchConfClass = matchConf >= 80 ? 'badge-green' : matchConf >= 50 ? 'badge-yellow' : 'badge-red';
+
+                                                return `
+                                                <tr style="${idx === 0 ? 'background: rgba(34, 197, 94, 0.1);' : ''}">
+                                                    <td>${idx + 1}</td>
+                                                    <td>${id}</td>
+                                                    <td>${s.all_names?.[idx] || '-'}</td>
+                                                    <td style="text-align: right;">
+                                                        ${typeof matchConf === 'number'
+                                                            ? `<span class="badge ${matchConfClass}" style="padding: 2px 6px; font-size: 10px;">${matchConf}%</span>`
+                                                            : '<span style="color: var(--text-secondary);">-</span>'}
+                                                    </td>
+                                                </tr>
+                                            `}).join('')}
+                                        </table>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            container.innerHTML = html;
+        }
+
+        function renderProjection() {
+            const runs = benchmarkData.runs.filter(r => !r.error);
+            const volumes = [1, 10, 100, 1000, 10000];
+
+            // Table
+            const tbody = document.getElementById('projectionBody');
+            const sortedRuns = [...runs].sort((a, b) => a.cost_usd - b.cost_usd);
+
+            tbody.innerHTML = sortedRuns.map(run => `
+                <tr>
+                    <td><strong style="color: ${getModelColor(run.model)}">${run.model}</strong></td>
+                    ${volumes.map(v => `<td>$${(run.cost_usd * v).toFixed(v > 100 ? 2 : 4)}</td>`).join('')}
+                </tr>
+            `).join('');
+
+            // Chart
+            if (charts.projection) charts.projection.destroy();
+
+            charts.projection = new Chart(document.getElementById('projectionChart'), {
+                type: 'line',
+                data: {
+                    labels: volumes.map(v => `${v.toLocaleString()} Req`),
+                    datasets: runs.map(run => ({
+                        label: run.model,
+                        data: volumes.map(v => run.cost_usd * v),
+                        borderColor: getModelColor(run.model),
+                        backgroundColor: getModelColor(run.model) + '20',
+                        fill: false,
+                        tension: 0.3,
+                        pointRadius: 6,
+                        pointHoverRadius: 8
+                    }))
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { labels: { color: '#94a3b8' } }
+                    },
+                    scales: {
+                        y: {
+                            type: 'logarithmic',
+                            grid: { color: '#334155' },
+                            ticks: {
+                                color: '#94a3b8',
+                                callback: (value) => '$' + value.toFixed(2)
+                            }
+                        },
+                        x: {
+                            grid: { color: '#334155' },
+                            ticks: { color: '#94a3b8' }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Demo data loader (optional - for testing)
+        function loadDemoData() {
+            // You can paste your benchmark data here for quick testing
+        }
+    </script>
+</body>
+</html>

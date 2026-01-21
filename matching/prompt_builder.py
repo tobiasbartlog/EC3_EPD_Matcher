@@ -4,7 +4,7 @@ FIX: GPT liefert jetzt IMMER die angeforderte Anzahl Matches.
 """
 from typing import Dict, Any, List, Optional
 
-from config.settings import MatchingConfig
+from config.settings import MatchingConfig, ContextConfig
 
 # Import des Asphalt-Glossars
 try:
@@ -191,12 +191,15 @@ WICHTIGE REGELN:
 1. Liefere bis zu {max_results} Matches pro Schicht - Stoppe wenn keine sinnvollen Matches mehr vorhanden sind!
 2. Verwende nur IDs aus der obigen EPD-Liste
 3. Sortiere nach Relevanz (beste zuerst)
+4. "begruendung": "max. 80 Zeichen"
 
-Confidence-Bewertung:
 - 85-100: Sehr guter Match (Name/Typ stimmt gut überein)
 - 60-84:  Guter Match (thematisch passend)
 - 40-59:  Akzeptabler Match (entfernt verwandt)
 - 20-39:  Schwacher Match (nur wenn nötig um {max_results} zu erreichen)
+
+Wicthiger Hinweis zur Priorisierung:
+{PromptBuilder._get_weighting_rule()}
 
 Ausschluss-Begriffe (Confidence < 20): {ausschluss}
 
@@ -220,7 +223,7 @@ Antwort NUR als JSON:
 }}
 
 ⚠️ KRITISCH: 
-- GENAU {max_results} Matches pro Schicht!
+- Liefere bis zu {max_results} Matches pro Schicht - Stoppe wenn keine sinnvollen Matches mehr vorhanden sind!
 - Nur numerische IDs aus der EPD-Liste verwenden!
 - Ergebnisse für ALLE {len(materials)} Schichten liefern!
 """
@@ -244,12 +247,15 @@ AUFGABE
 Finde die {max_results} besten EPD-Matches für: "{material_name}"
 {hint}
 WICHTIGE REGELN:
-1. Liefere EXAKT {max_results} Matches - KEINE AUSNAHMEN!
+1. Liefere bis zu {max_results} Matches pro Schicht - Stoppe wenn keine sinnvollen Matches mehr vorhanden sind!
 2. Auch Matches mit Confidence 30-50 sind OK
 3. Verwende nur IDs aus der EPD-Liste
 4. Sortiere nach Relevanz
+5. "begruendung": "max. 80 Zeichen"
 
 Confidence: 85-100=sehr gut, 60-84=gut, 40-59=akzeptabel, 20-39=schwach
+Wicthiger Hinweis zur Priorisierung:
+{PromptBuilder._get_weighting_rule()}
 Ausschluss (Confidence < 20): {ausschluss}
 
 Antwort NUR als JSON:
@@ -260,6 +266,14 @@ Antwort NUR als JSON:
   ]
 }}
 """
+
+    @staticmethod
+    def _get_weighting_rule() -> str:
+        """Erstellt die Regel für die Priorisierung von Name vs. Material."""
+        if ContextConfig.PREFER_NAME_FIELD:
+            return "- Der Schicht-Name (NAME) ist FÜHREND. Wähle eine EPD, die exakt zur Funktion der Schicht passt (z.B. Deckschicht), auch wenn das Material-Feld spezifischere Details nennt."
+        else:
+            return "- Das 'Material'-Feld ist SCHARF zu priorisieren. Wenn im Material konkrete Sorten stehen (z.B. SMA, AC, Beton), MUSS die EPD dazu passen – ignoriere notfalls den Schicht-Namen."
 
     # Legacy-Methoden für Kompatibilität
     @staticmethod

@@ -7,7 +7,7 @@ Stage 5: Confidence Validation
 
 from typing import Dict, Any, List, Optional, Tuple
 
-from config.settings import ValidationConfig, GlossarConfig
+from config.settings import ValidationConfig, GlossarConfig, ContextConfig
 from utils.asphalt_glossar import (
     parse_material_input,
     filter_epds_for_material,
@@ -173,8 +173,9 @@ class ConfidenceValidator:
                     return min(gpt_confidence, max_excluded), f"'{mismatch}' passt nicht zu {material_type}"
 
         # 3. Schicht-Check
+        # Nur durchführen, wenn wir NICHT das Material priorisieren
         schicht_muss = parsed_material.get("schicht_epd_muss_enthalten", "")
-        if schicht_muss:
+        if schicht_muss and ContextConfig.PREFER_NAME_FIELD:
             schicht_muss_lower = schicht_muss.lower()
             if schicht_muss_lower not in combined:
                 ist_gleicher_typ = ConfidenceValidator._ist_gleicher_material_typ(

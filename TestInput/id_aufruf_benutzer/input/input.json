@@ -2,7 +2,7 @@
   "Gruppen": [
     {
       "NAME": "Deckschicht",
-      "MATERIAL":"Splittkies",
+      "MATERIAL":"SMA 8 S mit Polymodifiziertem Bindemittel 10/40-65A",
       "GUID": ["guid1", "guid2", "guid3"],
       "Volumen": 42.380
     },
@@ -14,13 +14,19 @@
     },
     {
       "NAME": "Tragschicht",
-      "MATERIAL": "A4-Asphalttragschicht 0/32 CS",
+      "MATERIAL": "AC 32 T S mit Straßenbaubitumen 30/45",
       "GUID": ["guid4", "guid5"],
       "Volumen": 57.420
     },
     {
       "NAME": "Schottertrag",
-      "MATERIAL": "A4-Schottertragschicht 0/45",
+      "MATERIAL": "AC 32 T S mit Straßenbaubitumen 30/45",
+      "GUID": ["guid4", "guid5"],
+      "Volumen": 57.420
+    },
+    {
+      "NAME": "Frostschutzschicht",
+      "MATERIAL": "Gesteinskörnungsgemisch 0/32",
       "GUID": ["guid4", "guid5"],
       "Volumen": 57.420
     }

@@ -2,107 +2,19 @@
   "Gruppen": [
     {
       "NAME": "Deckschicht",
-      "MATERIAL": "Splittkies",
-      "GUID": [
-        "guid1",
-        "guid2",
-        "guid3"
-      ],
-      "Volumen": 42.38,
+      "MATERIAL": "SMA 8 S mit Polymodifiziertem Bindemittel 10/40-65A",
+      "Volumen": 100,
+      "GUID": [],
       "id": [
-        "839",
-        "840",
-        "130",
-        "132",
-        "823",
-        "824",
-        "862",
-        "863"
+        "864",
+        "934",
+        "401"
       ],
       "id_confidence": {
-        "839": 35,
-        "840": 35,
-        "130": 35,
-        "132": 35,
-        "823": 35,
-        "824": 35,
-        "862": 35,
-        "863": 35
-      }
-    },
-    {
-      "NAME": "Binderschicht",
-      "MATERIAL": "AC 16 B S SG mit Polymermodifiziertem Bindemittel 10/40-65A",
-      "GUID": [
-        "guid4",
-        "guid5"
-      ],
-      "Volumen": 57.42,
-      "id": [
-        "38",
-        "401",
-        "136"
-      ],
-      "id_confidence": {
-        "38": 85,
-        "401": 60,
-        "136": 35
-      }
-    },
-    {
-      "NAME": "Tragschicht",
-      "MATERIAL": "A4-Asphalttragschicht 0/32 CS",
-      "GUID": [
-        "guid4",
-        "guid5"
-      ],
-      "Volumen": 57.42,
-      "id": [
-        "39",
-        "401",
-        "38",
-        "136"
-      ],
-      "id_confidence": {
-        "39": 85,
-        "401": 60,
-        "38": 60,
-        "136": 35
-      }
-    },
-    {
-      "NAME": "Schottertrag",
-      "MATERIAL": "A4-Schottertragschicht 0/45",
-      "GUID": [
-        "guid4",
-        "guid5"
-      ],
-      "Volumen": 57.42,
-      "id": [
-        "839",
-        "840",
-        "130",
-        "132",
-        "823",
-        "824",
-        "862",
-        "863"
-      ],
-      "id_confidence": {
-        "839": 35,
-        "840": 35,
-        "130": 35,
-        "132": 35,
-        "823": 35,
-        "824": 35,
-        "862": 35,
-        "863": 35
+        "864": 100,
+        "934": 85,
+        "401": 60
       }
     }
-  ],
-  "export_info": {
-    "source": "IFC",
-    "generated_at": "2025-09-01T00:00:00Z",
-    "volume_unit": "m3"
-  }
+  ]
 }
