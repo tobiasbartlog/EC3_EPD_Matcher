@@ -347,7 +347,7 @@ class AzureEPDMatcher:
         try:
             is_reasoning = any(
                 x in AzureConfig.DEPLOYMENT.lower()
-                for x in ["gpt-5", "o1"]
+                for x in ["gpt-5", "o1", "o3", "o4"]
             )
 
             params = {

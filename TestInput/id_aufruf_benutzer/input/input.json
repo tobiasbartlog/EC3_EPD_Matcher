@@ -2,7 +2,7 @@
   "Gruppen": [
     {
       "NAME": "Deckschicht",
-      "MATERIAL":"Aspahltbeton",
+      "MATERIAL":"Splittkies",
       "GUID": ["guid1", "guid2", "guid3"],
       "Volumen": 42.380
     },

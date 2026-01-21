@@ -35,11 +35,10 @@ class AzureConfig:
     """Azure OpenAI Konfiguration."""
     ENDPOINT = os.getenv("ENDPOINT_URL", "").strip()
     API_KEY = os.getenv("AZURE_OPENAI_API_KEY", "").strip()
-    DEPLOYMENT = os.getenv("DEPLOYMENT_NAME", "gpt-4o-mini").strip()
-    API_VERSION = os.getenv("AZURE_API_VERSION", "2024-08-01-preview").strip()
+    DEPLOYMENT = os.getenv("AZURE_DEPLOYMENT", "gpt-4o-mini").strip()  # Geändert!
+    API_VERSION = os.getenv("AZURE_API_VERSION", "2024-12-01-preview").strip()
     TIMEOUT = float(os.getenv("AZURE_TIMEOUT", "240.0"))
     MAX_RETRIES = _parse_int(os.getenv("AZURE_MAX_RETRIES", "3"), 3)
-
 
 # =============================================================================
 # EPD DATABASE API
