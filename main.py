@@ -8,6 +8,7 @@ from typing import Dict, Any, List
 sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
 
+from config.settings import MatchingConfig
 import matching.prompt_builder
 from matching.azure_matcher import AzureEPDMatcher
 from utils.file_handler import load_json, save_json
@@ -246,7 +247,12 @@ def main():
     print("=" * 60)
     print(f"Input:  {input_path}")
     print(f"Output: {output_path}")
-    if not args.no_batch:
+    print(f"Output: {output_path}")
+
+    # Batch-Modus Bestimmung
+    use_batch = (not args.no_batch) and MatchingConfig.USE_BATCH_MODE
+
+    if use_batch:
         print("Mode:   BATCH (alle Schichten in 1 Request) ⚡")
     else:
         print("Mode:   EINZELN (1 Request pro Schicht)")
@@ -269,10 +275,13 @@ def main():
     print(f"✓ Input geladen: {len(input_data.get('Gruppen', []))} Gruppe(n)\n")
 
     # Verarbeitung durchführen (Batch oder Einzeln)
-    if args.no_batch:
-        output_data = process_groups(input_data, matcher)
-    else:
+    # Batch-Modus aktiv, wenn NICHT deaktiviert per Argument UND in Config erlaubt
+    use_batch = (not args.no_batch) and MatchingConfig.USE_BATCH_MODE
+
+    if use_batch:
         output_data = process_groups_batch(input_data, matcher)
+    else:
+        output_data = process_groups(input_data, matcher)
 
     # Output speichern
     save_json(output_data, output_path)

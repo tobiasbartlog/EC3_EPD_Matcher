@@ -124,21 +124,37 @@ class PromptBuilder:
         header = f"\n{'='*60}\nVERFÜGBARE EPDs ({len(epds)})\n{'='*60}"
 
         if MatchingConfig.USE_DETAIL_MATCHING:
-            # Detail-Modus
+            # Detail-Modus: Dynamische Spalten-Auswahl basierend auf Config
             entries = []
+            columns = [c.lower() for c in MatchingConfig.COLUMNS]
+
             for i, epd in enumerate(epds, 1):
                 epd_id = epd.get("id")
                 name = str(epd.get("name", "N/A"))[:200]
-                klassifizierung = str(epd.get("klassifizierung", ""))[:100]
-
+                
+                # Basis-Eintrag (ID + Name sind immer dabei)
                 entry_lines = [f"\n{i}. ID: {epd_id}", f"   Name: {name}"]
 
-                if klassifizierung:
-                    entry_lines.append(f"   Klassifizierung: {klassifizierung}")
+                # Optionale Spalten prüfen
+                if "klassifizierung" in columns:
+                    val = str(epd.get("klassifizierung", ""))[:100]
+                    if val:
+                        entry_lines.append(f"   Klassifizierung: {val}")
 
-                tech_desc = str(epd.get("technischeBeschreibung", ""))[:200]
-                if tech_desc:
-                    entry_lines.append(f"   Beschreibung: {tech_desc}...")
+                if "technischebeschreibung" in columns:
+                    val = str(epd.get("technischeBeschreibung", ""))[:300]
+                    if val:
+                        entry_lines.append(f"   Beschreibung: {val}...")
+
+                if "anmerkungen" in columns:
+                    val = str(epd.get("anmerkungen", ""))[:200]
+                    if val:
+                        entry_lines.append(f"   Anmerkungen: {val}")
+
+                if "anwendungsgebiet" in columns:
+                    val = str(epd.get("anwendungsgebiet", ""))[:100]
+                    if val:
+                         entry_lines.append(f"   Anwendungsgebiet: {val}")
 
                 entries.append("\n".join(entry_lines))
         else:
