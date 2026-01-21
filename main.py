@@ -11,6 +11,7 @@ sys.stderr.reconfigure(encoding="utf-8")
 import matching.prompt_builder
 from matching.azure_matcher import AzureEPDMatcher
 from utils.file_handler import load_json, save_json
+from utils.cost_tracker import print_summary
 
 def process_groups_batch(input_data: Dict[str, Any], matcher: AzureEPDMatcher) -> Dict[str, Any]:
     """Verarbeitet alle Gruppen mit Batch-Matching (1x Azure-Call für alle)."""
@@ -276,11 +277,17 @@ def main():
     # Output speichern
     save_json(output_data, output_path)
 
+    # Kosten-Zusammenfassung ausgeben
+    print_summary()
+
     # Footer ausgeben
-    print("\n" + "=" * 60)
+    print("=" * 60)
     print("VERARBEITUNG ABGESCHLOSSEN")
     print("=" * 60)
 
 
 if __name__ == "__main__":
+    import sys
+    # Füge den Pfad als Kommandozeilen-Argument hinzu
+    sys.argv = ["main.py", "TestInput/id_aufruf_benutzer"]
     main()

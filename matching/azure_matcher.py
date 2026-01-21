@@ -17,6 +17,7 @@ from config.settings import (
 from api.auth import TokenManager
 from api.epd_client import EPDAPIClient
 from matching.prompt_builder import PromptBuilder
+from utils.cost_tracker import get_tracker, record_usage
 
 # Glossar-Import (optional, nur wenn aktiviert)
 if GlossarConfig.USE_GLOSSAR:
@@ -373,6 +374,20 @@ class AzureEPDMatcher:
 
             response = self.azure_client.chat.completions.create(**params)
             content = response.choices[0].message.content
+
+            # ===== Token-Tracking =====
+            if response.usage:
+                record = record_usage(
+                    model=AzureConfig.DEPLOYMENT,
+                    usage={
+                        "prompt_tokens": response.usage.prompt_tokens,
+                        "completion_tokens": response.usage.completion_tokens,
+                        "total_tokens": response.usage.total_tokens
+                    },
+                    context="epd_matching"
+                )
+                get_tracker().print_call_summary(record)
+            # ===== Ende Token-Tracking =====
 
             return content.strip() if content else json.dumps({"matches": []})
 
